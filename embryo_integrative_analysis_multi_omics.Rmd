@@ -1,0 +1,2020 @@
+---
+title: "Integrated analysis of the early human embryo\nfrom multi-omics singl-cell data"
+author: "Gaël CASTEL"
+date: '`r Sys.Date()`'
+output:
+  html_document: 
+    code_folding: hide
+    code_download: true
+    fig_caption: yes
+    highlight: zenburn
+    theme: cerulean
+    toc: yes
+    toc_float: yes
+    max-width: 1800px
+    margin-left: auto
+    margin-right: auto
+    widescreen: yes
+  ioslides_presentation:
+    slide_level: 2
+    self_contained: yes
+    colortheme: dolphin
+    fig_caption: yes
+    fig_height: 5
+    fig_width: 7
+    fonttheme: structurebold
+    highlight: tango
+    smaller: yes
+    toc: yes
+    widescreen: yes
+  pdf_document:
+    fig_caption: yes
+    highlight: zenburn
+    toc: yes
+    toc_depth: 3
+  beamer_presentation:
+    colortheme: dolphin
+    fig_caption: yes
+    fig_height: 5
+    fig_width: 7
+    fonttheme: structurebold
+    highlight: tango
+    incremental: no
+    keep_tex: no
+    slide_level: 2
+    theme: Montpellier
+    toc: yes
+  revealjs::revealjs_presentation:
+    theme: night
+    transition: none
+    self_contained: true
+    css: ../slides.css
+  slidy_presentation:
+    smart: no
+    slide_level: 2
+    self_contained: yes
+    fig_caption: yes
+    fig_height: 5
+    fig_width: 7
+    highlight: tango
+    incremental: no
+    keep_md: yes
+    smaller: yes
+    theme: cerulean
+    toc: yes
+    widescreen: yes
+  powerpoint_presentation:
+    slide_level: 2
+    fig_caption: yes
+    fig_height: 5
+    fig_width: 7
+    toc: yes
+font-import: http://fonts.googleapis.com/css?family=Risque
+font-family: Garamond
+transition: linear
+editor_options: 
+  chunk_output_type: console
+header-includes:
+   - \usepackage{floatrow}
+   - \floatsetup[figure]{capposition=top}
+---
+
+<style>
+.main-container {
+    min-width: 1800px;
+    margin-left: 0px;
+    margin-right: 0px;
+}
+</style>
+
+````{r setup, include=FALSE}
+setwd("C:/Users/E137833T/Desktop/dubii/stage/dubii_stage/")
+source("https://gitlab.univ-nantes.fr/E114424Z/veneR/raw/master/loadFun.R?inline=false")
+
+# install.packages("intergraph",dependencies = T, force=T,INSTALL_opts = '--no-lock') # this syntax works on the Rstudio cluster
+
+# BiocManager::install("sna",dependencies = T, force=T,INSTALL_opts = '--no-lock') # it worked ! put no for manipulatewidget
+
+# remotes::install_github("dgrapov/networkly")
+
+library(knitr)
+library(rgl)
+library(data.table)
+library(matrixStats)
+library(uwot)
+library(ggplot2)
+library(stringr)
+library(S4Vectors)
+library(DESeq2)
+library(MOFA)
+library(MOFAdata)
+library(Biobase)
+library(BiocGenerics)
+library(biomaRt)
+library(foreach)
+library(doParallel)
+library(FactoMineR)
+library(WGCNA)
+library(rgl)
+library(plotly)
+library(dplyr)
+library(edgeR)
+library(factoextra)
+library(ComplexHeatmap)
+library(dendextend)
+library(mixKernel)
+library(gprofiler2)
+library(intergraph)
+library(igraph)
+library(sna)
+library(ggnetwork)
+library(networkly)
+library(scales)
+
+
+fastRead2 <- function(fileName, sep = '\t',row.names = 1,rm.columns=0,as.matrix=FALSE,stringsAsFactors=FALSE,...){
+  require(data.table)
+  dat <- as.data.frame(data.table::fread(fileName,stringsAsFactors=stringsAsFactors, sep = sep,...))
+  if(!is.null(row.names)){
+    rownames(dat) <- make.names(dat[,row.names], unique = TRUE)
+    dat <- dat[,c(-row.names,-rm.columns),drop=FALSE]
+  }
+  if(as.matrix) dat<-as.matrix(dat)
+  return(dat)
+}
+
+timeNow<-function(x=NULL, y=NULL, m=NULL, d=NULL , h=NULL, min=NULL,ymd_h_m=NULL){x=date();
+y=str_sub(x,-4,-1)
+if(str_sub(x,-20,-18)=="Jan"){m="01"}
+if(str_sub(x,-20,-18)=="Feb"){m="02"}
+if(str_sub(x,-20,-18)=="Mar"){m="03"}
+if(str_sub(x,-20,-18)=="Apr"){m="04"}
+if(str_sub(x,-20,-18)=="May"){m="05"}
+if(str_sub(x,-20,-18)=="Jun"){m="06"}
+if(str_sub(x,-20,-18)=="Jul"){m="07"}
+if(str_sub(x,-20,-18)=="Aug"){m="08"}            
+if(str_sub(x,-20,-18)=="Sep"){m="09"}
+if(str_sub(x,-20,-18)=="Oct"){m="10"}
+if(str_sub(x,-20,-18)=="Nov"){m="11"}
+if(str_sub(x,-20,-18)=="Dec"){m="12"}
+d=ifelse(str_sub(x,-16,-16) ==" ",paste0("0",str_sub(x,-15,-15)),str_sub(x,-16,-15))
+h=str_sub(x,-13,-12)
+min=str_sub(x,-10,-9)
+
+return(ymd_h_min=paste(sep="",y,"_",m,"_",d,"_",h,"_",min))
+}
+
+knitr::opts_chunk$set(
+  echo = TRUE, 
+  eval = TRUE, 
+  warning = FALSE, 
+  message = FALSE, 
+  results = TRUE, 
+  comment = "")
+
+options(rgl.useNULL=TRUE)
+
+knitr::knit_hooks$set(webgl = hook_webgl)
+
+````
+
+# Introduction
+
+In Mammals, life starts when a male sperm cell fertilizes a female oocyte to form a zygote. This unique totipotent cell can give rise to a complete multicellular organism. This formation relies on a series of cellular differentiation and spatial organization events. Much insight into Mammalian development has come from the mouse, which benefits from a rapid development (21 days) and provides unrivalled accessibility to embryos. Regarding human development however, differences have emerged, and many questions remain unsolved ([Mole *et al*, 2020](#mole_2020)). Thanks to the advent of single-cell multi-omics techniques, we have now access to the very intimate molecular processes occuring in the early human embryo. However, exploration of these data has been optimized, and notably, a careful integrated analysis of the different omics levels has not been conducted so far.
+
+In this study, we propose to apply integrated bioinformatics analyses to transcriptomic and methylomic data of the peri-implantation human embryo, in order to gain insight into the interconnection of these different molecular levels. For this purpose, we use single-cell RNA-Seq and PBAT data from ([Zhou *et al*, 2019](#zhou_2019)), extracted from *in vitro* cultured human embryos from day 6 to 12 of development. These data are particularly suited for our analysis, because transcriptomic and DNA methylation data were obtained from the same cell.
+
+First, we normalize the data to make them suitable for secondary analysis algorithms. Then, we start investigating each dataset separately. We determine inter-individual similarities by dimension reduction approaches such as Principal Component Analysis (PCA). We cross-validate the results with unsupervised hierarchical clustering.
+
+Next, we perform integrated analysis of the two datasets with different approaches:
+
+- Multi-Omics Factor Analysis (MOFA)
+- Kernel computation
+
+We follow the analysis by investigating similarities between gene expression and DNA methylation patterns through the sample this time. For this purpose, we use Weighted Gene Correlation Network Analysis (WGCNA) in order to identify correlated gene modules.
+
+Finally, we consult selected databases for functional enrichment analysis, and draw conclusions and perspectives
+
+# Data preprocessing
+
+## Data exploration
+
+These two datasets consist of 130 cells from the three earliest cell lineages:
+
+- the epiblast (EPI), which is pluripotent and give rise to the fetus
+- the primitive endoderm (PE), which produces the yolk sac
+- the trophectoderm (TE), which yields the placenta.
+
+The table below summarizes the distribution of cells into lineages and embryonic days.
+
+````{r data loading}
+dna=as.matrix(fastRead2("embryo_dna_methylation_good.tsv"))
+colnames(dna)=sub("^[Meth_Tri_hv_]+(*)", "\\1", colnames(dna))
+dna[is.na(dna)] <- 0
+
+rna=as.matrix(fastRead2("GSE109555_TrioSeq_TPM.txt"))
+colnames(rna)=sub("^[Tri_hv_]+(*)", "\\1", colnames(rna))
+rna=rna[,colnames(dna)]
+
+metadata=fastRead2("embryo_metadata.tsv")[,c("Lineage","Day","Sex","Day_Emb")]
+rownames(metadata)=sub("^[Meth_Tri_hv_]+(*)", "\\1", rownames(metadata))
+colnames(metadata)=c("lineage","day","sex","embryo")
+metadata=metadata[colnames(dna),]
+
+row_lineage=NULL
+
+for (lineage_i in levels(factor(metadata$lineage))){
+  
+  lineage_day=NULL
+  
+  for (day_i in levels(factor(metadata$day,levels = c("D6","D8","D10","D12")))){
+    lineage_day=cbind(lineage_day,nrow(metadata[which(metadata$lineage==lineage_i & metadata$day==day_i),]))
+  }
+  
+  row_lineage=rbind(row_lineage, lineage_day)
+}
+
+rownames(row_lineage)=levels(factor(metadata$lineage))
+colnames(row_lineage)=levels(factor(metadata$day,levels = c("D6","D8","D10","D12")))
+row_lineage=cbind(row_lineage,Total=rowSums(row_lineage))
+kable(row_lineage, caption = "Table of embryo cell features")
+````
+
+````{r annotation objects}
+day=metadata[colnames(dna),"day"]
+names(day)=colnames(dna)
+day_colors=c("D10"="blue","D12"="red","D6"="orange","D8"="purple")
+day_colors <- day_colors[as.factor(day)]
+day_shape = c("D10"="square","D12"="circle","D6"= "diamond","D8"= "x") 
+day_shape <- day_shape[as.factor(day)]
+day_color_pca_umap=unique(day_colors)
+names(day_color_pca_umap)=unique(names(day_colors))
+day_shape_pca_umap=unique(day_shape)
+names(day_shape_pca_umap)=unique(names(day_shape))
+day_traits=model.matrix(~ 0 + day, data=as.data.frame(day))
+
+lineage=metadata[colnames(dna),"lineage"]
+names(lineage)=colnames(dna)
+lineage_colors=c("Epi"="red","PE"="green","TE"="blue")
+lineage_colors <- lineage_colors[as.factor(lineage)]
+lineage_shape = c("Epi"="square","PE"="circle","TE"= "diamond") 
+lineage_shape <- lineage_shape[as.factor(lineage)]
+lineage_color_pca_umap=unique(lineage_colors)
+names(lineage_color_pca_umap)=unique(names(lineage_colors))
+lineage_shape_pca_umap=unique(lineage_shape)
+names(lineage_shape_pca_umap)=unique(names(lineage_shape))
+lineage_traits=model.matrix(~ 0 + lineage, data=as.data.frame(lineage))
+
+traits=cbind(day_traits,lineage_traits)
+traits_main=cbind(as.numeric(factor(metadata$lineage)),as.numeric(factor(metadata$day)),as.numeric(factor(metadata$sex)),as.numeric(factor(metadata$embryo)))
+colnames(traits_main)=colnames(metadata)
+rownames(traits_main)=rownames(metadata)
+````
+
+## Normalisation of data distribution
+
+Input data have been pre-processed to some extent: methylation levels range from 0 to 1 while RNA-Seq counts are given in FPKM. However, distribution of feature values do not follow a Gaussian law. We need to normalise the data prior to further processing, in order to increase the robustness of secondary analyses.
+
+By looking at total measures per individual for each dataset, we observe that library sizes for DNA methyaltion differ within sample, likely due to technical issues related to sequencing depth. So we decide to standardize this size by scaling units to 1e6. In contrast, each library from RNA-Seq dataset has the same size as it corresponds to FPKM.
+
+````{r apply upm to dna}
+# Normalize library size
+
+dna=dna*100 #this operation is only intended to facilitate visualization of data initially ranging from 0 to 1
+dna=round(dna,2) #this operation is only intended to facilitate comparison of distribution between the two datasets, same rounding 
+dna_upm=round(apply(dna,2,function(x){x/sum(x)*1e6}),2)
+
+````
+
+We can also filter out null and low-variance features, as these might not contain relevant information for differential analysis we plan to conduct.
+
+We start creating tables that summarize quantitative measures per individual and per feature.
+
+````{r dna methylation loci and transcripts statistics}
+
+dna_upm_gene_stat_prenorm <- data.frame(
+mean=apply(dna_upm,1,mean),
+sd=apply(dna_upm,1,sd),
+var=apply(dna_upm,1,sd)^2,
+cv=apply(dna_upm,1,function(x){sd(x)/mean(x)}),
+iqr=apply(dna_upm,1,function(x) quantile(x, probs=seq(0,1,0.05), na.rm=T))["75%",]-apply(dna_upm,1,function(x) quantile(x, probs=seq(0,1,0.05), na.rm=T))["25%",],
+min=apply(dna_upm,1,min),
+median=apply(dna_upm,1,median),
+max=apply(dna_upm,1,max),
+null = apply(dna_upm == 0, 1, sum, na.rm = TRUE)
+)
+
+rna_gene_stat_prenorm <- data.frame(
+mean=apply(rna,1,mean),
+sd=apply(rna,1,sd),
+var=apply(rna,1,sd)^2,
+cv=apply(rna,1,function(x){sd(x)/mean(x)}),
+iqr=apply(rna,1,function(x) quantile(x, probs=seq(0,1,0.05), na.rm=T))["75%",]-apply(rna,1,function(x) quantile(x, probs=seq(0,1,0.05), na.rm=T))["25%",],
+min=apply(rna,1,min),
+median=apply(rna,1,median),
+max=apply(rna,1,max),
+null = apply(rna == 0, 1, sum, na.rm = TRUE)
+)
+
+````
+
+````{r filtering out null features}
+
+## Data filtering: genes having at least 90% null values
+meth_prom_null <- dna_upm_gene_stat_prenorm$null >= ncol(dna_upm)
+transcript_null <- rna_gene_stat_prenorm$null >= ncol(rna)
+
+meth_prom_low_var <- dna_upm_gene_stat_prenorm$var <= median(dna_upm_gene_stat_prenorm$var)
+transcript_low_var <- rna_gene_stat_prenorm$var <= median(rna_gene_stat_prenorm$var)
+
+meth_prom_subset = !(meth_prom_null | meth_prom_low_var)
+transcript_subset = !(transcript_null | transcript_low_var)
+
+dna_upm_subset = dna_upm[meth_prom_subset,]
+rna_subset = rna[transcript_subset,]
+
+````
+
+````{r Exploring scPBAT input data, figures-side, fig.show="hold", out.width="33%",fig.hold=TRUE,fig.topcaption = TRUE , fig.cap="<center>**Normalisation of gene promoter methylation level distribution**</center>"}
+
+hist(dna, breaks=100, main = "Input")
+hist(log2(dna_upm), breaks=100, main = "Size standardisation & log-transformation")
+hist(log2(dna_upm_subset), breaks=100, main = "Size standardisation, filtration & log-transformation")
+
+````
+
+````{r Exploring scRNA-Seq input data, figures-side, fig.show="hold", out.width="33%",fig.hold=TRUE,fig.topcaption = TRUE , fig.cap="<center>**Normalisation of gene promoter methylation levels**</center>"}
+
+hist(rna, breaks=100, main = "Input")
+hist(log2(rna), breaks=100, main = "Log-transformation")
+hist(log2(rna_subset), breaks=100, main = "Size standardisation, filtration & log-transformation")
+
+````
+When we plot input data for the two datasets, we observe a 0 inflation, which can have two origins:
+
+- biological: 0 expression or methylation, unlikely
+- technical: no detection of expression or methylation, likely
+
+Moreover, we observe that distribution is also skewed by high values.
+
+So for better visualization of the latent distribution, we apply log transformation of the data in order to remove 0 and reduce dynamic range of variables.
+
+By doing this, we reveal that biologically related distribution of gene expression and DNA methylation levels at gene promoters, after filtering out low-variance features, both approximate the normal/Gaussian law.
+
+It is interesting to mention that low-variance levels correspond to low methylated regions, and if not filtered out, yield a bimodal distribution.
+
+````{r clustering on DNA methylated gene promoters, figures-side, fig.show="hold", out.width="50%",fig.hold=TRUE,fig.topcaption = TRUE , fig.cap="<center>**Hierarchical clustering of embryo cells on gene promoter methylation**</center>"}
+
+meth_prom_sample_dist <- factoextra::get_dist(x =t(log2(dna_upm_subset+1)), method = "pearson")
+
+meth_prom_sample_dist %>%
+  hclust(method="ward.D2") %>%
+  color_branches(k=2,col = c("#00FFFF","#FF0000"), groupLabels = T) -> meth_prom_sample_dend
+
+labels_colors(meth_prom_sample_dend) <- rainbow(4)[factor(day[order.dendrogram(meth_prom_sample_dend)])]
+
+plot(meth_prom_sample_dend)
+
+
+meth_prom_sample_dist <- factoextra::get_dist(x =t(log2(dna_upm_subset+1)), method = "pearson")
+
+meth_prom_sample_dist %>%
+  hclust(method="ward.D2") %>%
+  color_branches(k=2,col = c("#00FFFF","#FF0000"), groupLabels = T) -> meth_prom_sample_dend
+
+labels_colors(meth_prom_sample_dend) <- rainbow(3)[factor(lineage[order.dendrogram(meth_prom_sample_dend)])]
+
+plot(meth_prom_sample_dend)
+````
+
+````{r clustering on RNA gene expression, figures-side, fig.show="hold", out.width="50%",fig.hold=TRUE,fig.topcaption = TRUE , fig.cap="<center>**Hierarchical clustering of embryo cells on gene expression**</center>"}
+transcript_sample_dist <- factoextra::get_dist(x =t(log2(rna_subset+1)), method = "pearson")
+
+transcript_sample_dist %>%
+  hclust(method="ward.D2") %>%
+  color_branches(k=10,col = c("blue","blue","green","blue","red","red","red","green","green","green"), groupLabels = T) -> transcript_sample_dend
+
+labels_colors(transcript_sample_dend) <- rainbow(4)[factor(day[order.dendrogram(transcript_sample_dend)])]
+
+plot(transcript_sample_dend)
+
+
+transcript_sample_dist <- factoextra::get_dist(x =t(log2(rna_subset+1)), method = "pearson")
+
+transcript_sample_dist %>%
+  hclust(method="ward.D2") %>%
+  color_branches(k=10,col = c("blue","blue","green","blue","red","red","red","green","green","green"), groupLabels = T) -> transcript_sample_dend
+
+labels_colors(transcript_sample_dend) <- rainbow(3)[factor(lineage[order.dendrogram(transcript_sample_dend)])]
+
+plot(transcript_sample_dend)
+
+````
+
+We choose to calculate Pearson correlation distance between DNA methylated gene promoters, because this method produces the best Rand Adjusted Index ([Jaskowiak *et al*, 2014](#jaskowiak_2014)). Then we apply hierarchical clustering with Ward method ("ward.D2"), as this most robustly identifies groups of individuals with similar quantitative traits. Indeed, this groups individuals according to variance instead of mean, contrary to other methods such as "average" ([Lawlor *et al*, 2016](#lawlor_2016)).
+
+For methylation levels of gene promoters, we observe that the two main clusters segregate day 6 from later developmental stages. However, within the second main cluster, we see that subclusters well separate cell lineages. For subsequent analyses, we will consider analyzing day6 either together or separately from later stages, depending on the question to be addressed.
+
+For gene expression, we observe that clusters nicely segregate cell lineages.
+
+# Dimensionality reduction based analysis of inter-individual vicinity
+
+In order to investigate individual vicinity within sample, we perform a Principal Component Analysis (PCA), which reduces dimensions while keeping maximum of sample variance summarised in "eigenvectors" ([Lever *et al*, 2017](#lever_2017)).
+
+We also perform another dimensionality reduction analysis, the Uniform Manifold Approximation and Projection (UMAP), which is complementary to PCA, as it is nonlinear, and outperforms t-SNE ([Kobak *et al*, 2019](#kobak_2019)). A key parameter for the UMAP is the number of neighbours for each individual. In order to determine the most appropriate number of neighbours according to the latent structure of the data, we use the result of the hierarchical clustering of cells, cut at three clusters recapitulating developmental days or cell types relative to the dataset, and apply the mean number of cells per cluster.
+
+````{r pca and umap of embryo cells computed on gene promoter methylation,fig.topcaption = TRUE , fig.cap="<center>**PCA and UMAP of embryo cells computed on gene promoter methylation**</center>"}
+dna_pca<-ACP(log2(dna_upm_subset+1))
+
+dna_umap<-make.umap2(log2(dna_upm_subset+1),n_components = 3,n_neighbors = ncol(dna_upm_subset),min_dist = 0.2)#good
+
+rna_pca<-ACP(log2(rna_subset+1))
+
+rna_umap<-make.umap2(log2(rna_subset+1),n_components = 3,n_neighbors = ncol(rna_subset),min_dist = 0.2, metric= "correlation")#good
+
+# save.image("2021_06_07_embryo_umap.RData")
+load(file = "2021_06_07_embryo_umap.RData")
+
+dna_pca_fig <- plot_ly(x=dna_pca$x[,"PC1"], y=dna_pca$x[,"PC2"], z=dna_pca$x[,"PC3"],color = ~names(day_colors), colors = day_color_pca_umap,alpha=0.6,scene='scene1')
+dna_pca_fig <- dna_pca_fig %>% add_markers()
+
+dna_umap_fig <- plot_ly(x=dna_umap[,1], y=dna_umap[,2], z=dna_umap[,3],color = ~names(day_colors), colors = day_color_pca_umap,alpha=0.6,symbol = ~names(lineage_shape), symbols=lineage_shape_pca_umap,scene='scene2')
+dna_umap_fig <- dna_umap_fig %>% add_markers()
+
+dna_pca_umap_fig <- subplot(dna_pca_fig, dna_umap_fig) 
+dna_pca_umap_fig <- dna_pca_umap_fig %>% layout(title = "3D Subplots",
+         scene1 = list(domain=list(x=c(0,0.5),y=c(0,1)),
+                      aspectmode='cube'),
+         scene2 = list(domain=list(x=c(0.5,1),y=c(0,1)),
+                       aspectmode='cube'))
+
+dna_pca_umap_fig
+
+````
+
+````{r pca and umap of embryo cells computed on gene expression,fig.topcaption = TRUE , fig.cap="<center>**PCA and UMAP of embryo cells computed on gene expression**</center>"}
+
+rna_pca_fig <- plot_ly(x=rna_pca$x[,"PC1"], y=rna_pca$x[,"PC2"], z=rna_pca$x[,"PC3"],color = ~names(lineage_colors), colors = lineage_color_pca_umap,alpha=0.6, scene='scene1')
+rna_pca_fig <- rna_pca_fig %>% add_markers()
+
+rna_umap_fig <- plot_ly(x=rna_umap[,1], y=rna_umap[,2], z=rna_umap[,3],color = ~names(lineage_colors), colors = lineage_color_pca_umap,alpha=0.6,symbol = ~names(day_shape), symbols=day_shape_pca_umap, scene='scene2')
+rna_umap_fig <- rna_umap_fig %>% add_markers()
+
+rna_pca_umap_fig <- subplot(rna_pca_fig, rna_umap_fig) 
+rna_pca_umap_fig <- rna_pca_umap_fig %>% layout(title = "3D Subplots",
+         scene1 = list(domain=list(x=c(0,0.5),y=c(0,1)),
+                      aspectmode='cube'),
+         scene2 = list(domain=list(x=c(0.5,1),y=c(0,1)),
+                       aspectmode='cube'))
+
+rna_pca_umap_fig
+# save.image(paste0(timeNow(),"embryo_dna_rna_umap.RData"))
+````
+
+We observe that applying the "correlation" metric based on Pearson distance to umap calculation provides much better results than euclidean distance.
+
+PCA and UMAP yield groups of individuals in line with hierarchical clustering. For both analyses, we observe that gene promoter methylation mainly recapitulates developmental progression (embryonic days) while gene expression recapitulates cell lineages(EPI, PE, TE). This observation is in line with previously published results from ([Zhou *et al*, 2019](#zhou_2019)), as shown in the figure below:
+
+"Principal component analysis 
+of DNA methylome data showed that these 130 cells formed 4 major 
+clusters (Extended Data Fig. 8g, h), with a combination of the EPI, PE 
+and TE at the blastocyst stage (day 6) as a single cluster, and the EPI, 
+PE and TE beyond the blastocyst stage as another 3 separate clusters, 
+suggesting that all of the 3 lineages showed considerable changes in 
+DNA methylation soon after implantation."
+
+In terms of biology, this could mean that at day 6, global DNA methylation state results from epigenetic waves at early embryonic stages, prior to lineage specification. Later stages show rewriting of epigenetic marks specific to cell lineages, which have distinct transcriptomic signatures.
+
+This observation is interesting as a combination of DNA methylation and gene expression levels might allow to assign developmental stage and lineage to single cells of the human embryo.
+
+# WGCNA
+
+After considering inter-individual vicinity, we now investigate correlation within sample at gene promoter methylation and gene expression levels. For this purpose, we perform Weighted Gene Network Correlation Analysis (WGCNA). This algorithm searches for a latent structure within features, i.e modules of correlated genes at promoter methylation or transcriptional levels ([Langfelder *et al*, 2008](#langfelder_2008)).
+
+## Parameter settings & WGCNA computation
+
+First, we need to determine the most suitable WGCNA parameters to apply for each dataset. We notably need to choose the soft-power (soft thresholding power) which is used to power the adjacency matrix of genes, in order to reduce signal noise.
+
+According to [WGCNA package guidelines](https://horvath.genetics.ucla.edu/html/CoexpressionNetwork/Rpackages/WGCNA/faq.html), it is not recommended filtering data prior to WGCNA. Indeed, this is designed to be an unsupervised analysis method that clusters genes based on their expression profiles (or methylation patterns, by extension). For instance, filtering genes by differential expression would lead to a set of correlated genes that will essentially form a few highly correlated modules. It would also completely invalidate the scale-free topology assumption, so choosing soft thresholding power by scale-free topology fit would fail. Therefore, we provide input data to the WGCNA algorithm.
+
+````{r wgcna fa determine softpower, figures-side, fig.show="hold", out.width="50%",fig.topcaption = TRUE , fig.cap="<center>**Setting parameters of WGCNA**</center>"}
+
+#For WGCNA, we use the normalized expression matrix.
+
+wgcna_exprDat=list(dna_upm_subset,rna_subset)
+names(wgcna_exprDat)=c("dna","rna")
+
+wgcna_datExpr=lapply(wgcna_exprDat,t) #We transpose the normalized expression #matrix, because WGCNA is used to find covariance etween genes, not between #sample, unlike PCA.
+
+# Choose a set of soft-thresholding powers
+powers = c(1:20)
+# Call the network topology analysis function
+sft = lapply(wgcna_datExpr,pickSoftThreshold, networkType = "signed", powerVector = powers, verbose = 5)
+
+# Plot the results:
+par(mfrow = c(1, 2));
+options(repr.plot.width = 14, repr.plot.height = 10);
+
+# Scale-free topology fit index as a function of the soft-thresholding power
+plot.new()
+plot(sft[["dna"]]$fitIndices[,1], -sign(sft[["dna"]]$fitIndices[,3])*sft[["dna"]]$fitIndices[,2],
+xlab = "Soft Threshold (power)", ylab = "Scale Free Topology Model␣
+,→Fit,signed R^2", type = "n",
+main = paste("Scale independence"));
+text(sft[["dna"]]$fitIndices[,1], -sign(sft[["dna"]]$fitIndices[,3])*sft[["dna"]]$fitIndices[,2],
+labels = powers, cex = 0.9, col = "red");
+# this line corresponds to using an R^2 cut-off of h
+abline(h = 0.9, col = "red")
+# Mean connectivity as a function of the soft-thresholding power
+plot(sft[["dna"]]$fitIndices[,1], sft[["dna"]]$fitIndices[,5],
+xlab = "Soft Threshold (power)", ylab = "Mean Connectivity", type = "n",
+main = paste("Mean connectivity"));
+text(sft[["dna"]]$fitIndices[,1], sft[["dna"]]$fitIndices[,5], labels = powers, cex = 0.9, col ="red")
+
+# Scale-free topology fit index as a function of the soft-thresholding power
+plot.new()
+plot(sft[["rna"]]$fitIndices[,1], -sign(sft[["rna"]]$fitIndices[,3])*sft[["rna"]]$fitIndices[,2],
+xlab = "Soft Threshold (power)", ylab = "Scale Free Topology Model␣
+,→Fit,signed R^2", type = "n",
+main = paste("Scale independence"));
+text(sft[["rna"]]$fitIndices[,1], -sign(sft[["rna"]]$fitIndices[,3])*sft[["rna"]]$fitIndices[,2],
+labels = powers, cex = 0.9, col = "red");
+# this line corresponds to using an R^2 cut-off of h
+abline(h = 0.9, col = "red")
+# Mean connectivity as a function of the soft-thresholding power
+plot(sft[["rna"]]$fitIndices[,1], sft[["rna"]]$fitIndices[,5],
+xlab = "Soft Threshold (power)", ylab = "Mean Connectivity", type = "n",
+main = paste("Mean connectivity"));
+text(sft[["rna"]]$fitIndices[,1], sft[["rna"]]$fitIndices[,5], labels = powers, cex = 0.9, col ="red")
+````
+
+We choose a soft-power of 12 for both datasets, as this yields a > 0.9 scale-free topology fitting index (R<sup>2</sup>). Intuitively, we would have rather chosen a soft-power of 4 for the scPBAT and 7 for the scRNA-Seq datasets, as these correspond to the inflection points of the curves that also yield a > 0.9 R<sup>2</sup>. However, it is reported in [WGCNA package guidelines](https://horvath.genetics.ucla.edu/html/CoexpressionNetwork/Rpackages/WGCNA/faq.html) that a minimum soft-power of 12 is advised for signed networks. This soft-power thresholding allows the correlation maximization with scale-free topology producing low mean connectivity.
+
+One pitfall of WGCNA is overfitting the model. This could happen by setting soft-power too high.
+
+Given the high number of genes, we fix a threshold of 100 genes per module, to avoid over-resolution yielding inflated small modules.
+
+WGCNA on gene promoter methylation produces 50 modules, while it yields 39 modules of correlated gene expression. The grey groups correspond to genes that have not been assigned to any module.
+
+## WGCNA calculation
+
+````{r wgcna compute, figures-side, fig.show="hold", out.width="50%",fig.hold=TRUE}
+#################################################wgcna####################################################
+
+# dna_net = blockwiseModules(wgcna_datExpr[["dna"]], power = 12, minModuleSize = 30, networkType = "signed",
+#                         reassignThreshold = 1e-6, mergeCutHeight = 0.25,
+#                         numericLabels = TRUE, pamRespectsDendro = FALSE,
+#                         saveTOMs = TRUE, nThreads = 10,
+#                         saveTOMFileBase = "dna",
+#                         verbose = 0, corType="pearson")
+# 
+# rna_net = blockwiseModules(wgcna_datExpr[["rna"]], power = 12, minModuleSize = 30, networkType = "signed",
+#                         reassignThreshold = 1e-6, mergeCutHeight = 0.25,
+#                         numericLabels = TRUE, pamRespectsDendro = FALSE,
+#                         saveTOMs = TRUE, nThreads = 10,
+#                         saveTOMFileBase = "rna",
+#                         verbose = 0, corType="pearson")
+
+# save.image("2021_06_12_embryo_wgcna_computation.RData")
+load("2021_06_12_embryo_wgcna_computation.RData")
+
+# Convert labels to colors for plotting
+dna_merged_colors = labels2colors(dna_net$colors)
+rna_merged_colors = labels2colors(rna_net$colors)
+# Plot the dendrogram and the module colors underneath
+plot.new()
+plotDendroAndColors(dna_net$dendrograms[[1]], dna_merged_colors[dna_net$blockGenes[[1]]],
+                    "DNA methylation Module colors",
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05)
+
+plotDendroAndColors(rna_net$dendrograms[[1]], rna_merged_colors[rna_net$blockGenes[[1]]],
+                    "RNA methylation Module colors",
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05)
+````
+
+## Visualization of WGCNA networks
+
+Instead of Cytoscape, we use plotly to see it in 3D. What could be the third dimension ? interaction too (?)
+
+## Gene module membership & connectivity
+
+````{r calculating membership and connectivity of genes to WGCNA modules, echo=FALSE}
+
+#Gene promoter module correspondence
+promoter_names <- colnames(wgcna_datExpr[["dna"]])
+promoter_module_names <-substr(cn(dna_net$MEs),3,10)
+promoter_modules<-data.frame(gene_promoter=colnames(wgcna_datExpr[["dna"]]),Module=dna_net$colors)
+
+#Membership of gene_promoters
+promoter_module_membership <- as.data.frame(cor(wgcna_datExpr[["dna"]], dna_net$MEs, use = "p"));
+colnames(promoter_module_membership) <- promoter_module_names;
+
+#Connectivity
+promoter_module_degrees=intramodularConnectivity.fromExpr(wgcna_datExpr[["dna"]], dna_net$colors,networkType = "signed",power=12)#In-house function to calculate the connectivity of gene_promoters within WGCNA modules. 12 is the soft-power we chose for WGCNA module computation
+rownames(promoter_module_degrees)<-promoter_names
+
+gene_promoter_module_membership <- NULL
+gene_promoter_module_new_name=NULL
+
+for(module in promoter_module_names ){
+  promoters<-promoter_modules$gene_promoter[which(promoter_modules$Module==module)]
+  d<-data.frame(row.names = promoters, IntraConnectivity=promoter_module_degrees[promoters,"kWithin"],
+                InterConnectivity=promoter_module_degrees[promoters,"kOut"],Membership=promoter_module_membership[promoters,module])
+  gene_promoter_module_membership[[module]]<-d[order(d$Membership,decreasing = TRUE),]
+  gene_promoter_module_new_name=c(gene_promoter_module_new_name,rownames(gene_promoter_module_membership[[module]][1,]))
+}
+
+kable(head(gene_promoter_module_membership[[1]],5),caption = "gene_promoter membership & connectivity of TTC5 module")
+
+
+#Gene transcript module correspondence
+transcript_names <- colnames(wgcna_datExpr[["rna"]])
+transcript_module_names <-substr(cn(rna_net$MEs),3,10)
+transcript_modules<-data.frame(gene_transcript=colnames(wgcna_datExpr[["rna"]]),Module=rna_net$colors)
+
+#Membership of gene_transcripts
+transcript_module_membership <- as.data.frame(cor(wgcna_datExpr[["rna"]], rna_net$MEs, use = "p"));
+colnames(transcript_module_membership) <- transcript_module_names;
+
+#Connectivity
+transcript_module_degrees=intramodularConnectivity.fromExpr(wgcna_datExpr[["rna"]], rna_net$colors,networkType = "signed",power=12)#In-house function to calculate the connectivity of gene_transcripts within WGCNA modules. 12 is the soft-power we chose for WGCNA module computation
+rownames(transcript_module_degrees)<-transcript_names
+
+gene_transcript_module_membership <- NULL
+gene_transcript_module_new_name=NULL
+
+for(module in transcript_module_names ){
+  transcripts<-transcript_modules$gene_transcript[which(transcript_modules$Module==module)]
+  d<-data.frame(row.names = transcripts, IntraConnectivity=transcript_module_degrees[transcripts,"kWithin"],
+                InterConnectivity=transcript_module_degrees[transcripts,"kOut"],Membership=transcript_module_membership[transcripts,module])
+  gene_transcript_module_membership[[module]]<-d[order(d$Membership,decreasing = TRUE),]
+  gene_transcript_module_new_name=c(gene_transcript_module_new_name,rownames(gene_transcript_module_membership[[module]][1,]))
+}
+
+kable(head(gene_transcript_module_membership[[1]],5),caption = "gene_transcript membership & connectivity of ATXN1 module")
+
+````
+
+We calculate membership and connectivity of module genes and rename WGCNA modules with eigengenes defined by the highest membership to module.
+
+## Correlation heatmap of WGCNA modules & day of treatment 
+
+````{r wgcna plot labeled heatmap, figures-side, fig.show="hold", out.width="90%", fig.topcaption = TRUE , fig.cap="<center>**WGCNA modules-trait correlation heatmap**</center>"}
+
+## DNA methylation
+dna_moduleLabels = dna_net$colors
+dna_moduleColors = labels2colors(dna_net$colors)
+dna_MEs = dna_net$MEs;
+dna_netree = dna_net$dendrograms[[1]];
+
+# Define numbers of genes and samples
+dna_nGenes = ncol(wgcna_datExpr[["dna"]]);
+dna_nSamples = nrow(wgcna_datExpr[["dna"]]);
+dna_MEs_eigengenes = moduleEigengenes(wgcna_datExpr[["dna"]], dna_moduleLabels)$eigengenes
+
+dna_MEs_eigengenes=dna_MEs_eigengenes[,colnames(dna_MEs)]
+colnames(dna_MEs_eigengenes)=paste0("ME_",gene_promoter_module_new_name)
+colnames(dna_MEs_eigengenes)[length(colnames(dna_MEs_eigengenes))]=paste0(colnames(dna_MEs_eigengenes)[length(colnames(dna_MEs_eigengenes))],"_ME0")#On précise quel est le groupe "0", qui correspond aux gènes n'appartenant à aucun module.
+
+dna_moduleTraitCor = cor(dna_MEs_eigengenes, traits, use = "p");
+dna_moduleTraitPvalue = corPvalueStudent(dna_moduleTraitCor, dna_nSamples);
+
+# Will display correlations and their p-values
+dna_testMatrix =  paste(signif(dna_moduleTraitCor, 2), "\n(",
+                           signif(dna_moduleTraitPvalue, 1), ")", sep = "");
+dim(dna_testMatrix) = dim(dna_moduleTraitCor)
+par(mar = c(6, 8, 1, 1));
+
+# Heatmap(dna_moduleTraitCor,clustering_method_rows="ward.D2",clustering_method_columns="ward.D2")
+
+Heatmap(dna_moduleTraitCor[,c("dayD6","dayD8","dayD10","dayD12","lineageEpi","lineagePE","lineageTE")],clustering_method_rows="ward.D2",cluster_columns = F)
+
+dna_moduleTraitCor_main = cor(dna_MEs_eigengenes, traits_main, use = "p");
+dna_moduleTraitPvalue_main = corPvalueStudent(dna_moduleTraitCor_main, dna_nSamples);
+
+# Will display correlations and their p-values
+dna_testMatrix =  paste(signif(dna_moduleTraitCor_main, 2), "\n(",
+                           signif(dna_moduleTraitPvalue_main, 1), ")", sep = "");
+dim(dna_testMatrix) = dim(dna_moduleTraitCor_main)
+par(mar = c(6, 8, 1, 1));
+
+Heatmap(dna_moduleTraitCor_main,clustering_method_rows="ward.D2",clustering_method_columns="ward.D2")
+
+## RNA
+rna_moduleLabels = rna_net$colors
+rna_moduleColors = labels2colors(rna_net$colors)
+rna_MEs = rna_net$MEs;
+rna_netree = rna_net$dendrograms[[1]];
+
+# Define numbers of genes and samples
+rna_nGenes = ncol(wgcna_datExpr[["rna"]]);
+rna_nSamples = nrow(wgcna_datExpr[["rna"]]);
+rna_MEs_eigengenes = moduleEigengenes(wgcna_datExpr[["rna"]], rna_moduleLabels)$eigengenes
+
+rna_MEs_eigengenes=rna_MEs_eigengenes[,colnames(rna_MEs)]
+colnames(rna_MEs_eigengenes)=paste0("ME_",gene_transcript_module_new_name)
+colnames(rna_MEs_eigengenes)[length(colnames(rna_MEs_eigengenes))]=paste0(colnames(rna_MEs_eigengenes)[length(colnames(rna_MEs_eigengenes))],"_ME0")#On précise quel est le groupe "0", qui correspond aux gènes n'appartenant à aucun module.
+
+rna_moduleTraitCor = cor(rna_MEs_eigengenes, traits, use = "p");
+rna_moduleTraitPvalue = corPvalueStudent(rna_moduleTraitCor, rna_nSamples);
+
+# Will display correlations and their p-values
+rna_testMatrix =  paste(signif(rna_moduleTraitCor, 2), "\n(",
+                           signif(rna_moduleTraitPvalue, 1), ")", sep = "");
+dim(rna_testMatrix) = dim(rna_moduleTraitCor)
+par(mar = c(6, 8, 1, 1));
+
+# Heatmap(rna_moduleTraitCor,clustering_method_rows="ward.D2",clustering_method_columns="ward.D2")
+
+Heatmap(rna_moduleTraitCor[,c("dayD6","dayD8","dayD10","dayD12","lineageEpi","lineagePE","lineageTE")],clustering_method_rows="ward.D2",cluster_columns = F)
+
+rna_moduleTraitCor_main = cor(rna_MEs_eigengenes, traits_main, use = "p");
+rna_moduleTraitPvalue_main = corPvalueStudent(rna_moduleTraitCor_main, rna_nSamples);
+
+# Will display correlations and their p-values
+rna_testMatrix =  paste(signif(rna_moduleTraitCor_main, 2), "\n(",
+                           signif(rna_moduleTraitPvalue_main, 1), ")", sep = "");
+dim(rna_testMatrix) = dim(rna_moduleTraitCor_main)
+par(mar = c(6, 8, 1, 1));
+
+Heatmap(rna_moduleTraitCor_main,clustering_method_rows="ward.D2",clustering_method_columns="ward.D2")
+
+````
+
+We observe that modules of gene promoters and transcripts correlate nicely with development stage or cell lineage, showing almost exclusive patterns. 
+
+# Integration of correlated gene and DNA methylation modules
+
+We now perform an integrative approach on correlation networks between the two datasets, to investigate potential interconnections between genes and DNA methylation  modules.
+
+````{r wgcna 2 networks correlation, figures-side, fig.show="hold", fig.width=20, fig.height=20, out.width="90%", fig.topcaption = TRUE , fig.cap="<center>**Multi-Omics WGCNA modules correlation**</center>"}
+
+dna_rna_moduleTraitCor_main = cor(rna_MEs_eigengenes, dna_MEs_eigengenes, use = "p");
+dna_rna_moduleTraitPvalue_main = corPvalueStudent(dna_rna_moduleTraitCor_main, dna_nSamples);
+
+# Will display correlations and their p-values
+dna_rna_testMatrix =  paste(signif(dna_rna_moduleTraitCor_main, 2), "\n(",
+                           signif(dna_rna_moduleTraitPvalue_main, 1), ")", sep = "");
+dim(dna_rna_testMatrix) = dim(dna_rna_moduleTraitCor_main)
+par(mar = c(6, 8, 1, 1));
+
+Heatmap(dna_rna_moduleTraitCor_main,clustering_method_rows="ward.D2",clustering_method_columns="ward.D2",name = "DNA-RNA Module\ncorrelation",row_title="WGCNA modules for gene expression", row_title_side = "right", row_title_gp = gpar(fontsize = 13.2, fontface="bold"), row_names_gp = gpar(col = c("purple")), column_title="WGCNA modules for gene promoter methylation", column_title_side = "bottom",column_title_gp = gpar(fontsize = 13.2, fontface="bold"), column_names_gp = gpar(col = c("#13d370")))
+
+dna_rna_module_correlation_points=NULL
+names_dna_rna_modules=NULL
+
+for (i in seq(nrow(dna_rna_moduleTraitCor_main))){
+  
+  dna_rna_module_correlation_points=c(dna_rna_module_correlation_points,dna_rna_moduleTraitCor_main[i,])
+  
+  names_dna_rna_modules=c(names_dna_rna_modules,paste0(rep(rownames(dna_rna_moduleTraitCor_main)[i],ncol(dna_rna_moduleTraitCor_main)),"-",colnames(dna_rna_moduleTraitCor_main)))
+  
+}
+
+dna_rna_module_correlation_plot=NULL
+dna_rna_module_correlation_plot$module_pair=names_dna_rna_modules
+dna_rna_module_correlation_plot$cor_value=dna_rna_module_correlation_points
+dna_rna_module_correlation_plot=as.data.frame(dna_rna_module_correlation_plot)
+
+ggplot(dna_rna_module_correlation_plot,aes(x=module_pair, y=cor_value, label=module_pair))+
+  geom_point()+
+  geom_text(aes(label=ifelse(cor_value > 0.5,module_pair,'')),hjust=0,vjust=0)+
+  geom_hline(yintercept=0.5, linetype="solid", 
+                color = "red", size=1)
+
+````
+
+
+We select the top most correlated or anti-correlated gene promoter and transcript modules for further investigation. We foucs on 3 pairs of top correlated transcript-pomoter modules, that characterize some lineage-stage traits:
+
+- ME_RPS23-ME_SNORD116.8 (Epi-day6)
+- ME_VWCE-ME_SPACA5B (PE-day8)
+- ME_UBE2E2-ME_MXI1 (TE-day8)
+
+co-expression similarity and "co-methylation similarity"
+
+## Visualization of WGCNA module network with Cytoscape
+
+## Functional enrichment on WGCNA selected modules
+
+We set a p-value threshold of 0.1 for significant process enrichment, as modules ~ 40 genes fails to produce significant results under a 0.05 threshold.
+
+````{r GO analysis rna and dna with gost, fig.topcaption = TRUE , fig.cap="<center>**Gene Ontology analysis of WGCNA module gene transcripts and gene promoters**</center>", fig.hold=TRUE}
+# We get the genes from selected WGCNA modules
+gene_promoter_module_membership_go=gene_promoter_module_membership
+names(gene_promoter_module_membership_go)=gene_promoter_module_new_name
+
+gene_transcript_module_membership_go=gene_transcript_module_membership
+names(gene_transcript_module_membership_go)=gene_transcript_module_new_name
+
+module_promoters_epi_d6 <- rownames(gene_promoter_module_membership_go[["STARD10"]])
+module_transcripts_epi_d6 <- rownames(gene_transcript_module_membership_go[["RP9P"]])
+
+
+module_promoters_pe_d8 <- rownames(gene_promoter_module_membership_go[["SPACA5B"]])
+module_transcripts_pe_d8 <- rownames(gene_transcript_module_membership_go[["VWCE"]])
+
+module_promoters_te_d6 <- rownames(gene_promoter_module_membership_go[["SNORD76"]])
+module_transcripts_te_d6 <- rownames(gene_transcript_module_membership_go[["WNT7B"]])
+
+````
+
+# Network visualization
+
+As they are the main drivers of cell fate progression, we focus on transcription factor interactions. We query the [TF2DNA database](http://fiserlab.org/tf2dna_db//index.html) on computed interactions in human based on DNA binding motives. Transcription factors are preceded with the "TF" symbol and yield a list of regulated genes they interact with, while other classes of genes do not.
+
+````{r query multiple genes to STRING interaction database}
+
+# fastWrite(c(module_promoters_epi_d6,module_transcripts_epi_d6),file="module_promoters_module_transcripts_epi_d6.txt",col.names = F)
+# fastWrite(c(module_promoters_pe_d8,module_transcripts_pe_d8),file="module_promoters_module_transcripts_pe_d8.txt",col.names = F)
+# fastWrite(c(module_promoters_te_d6,module_transcripts_te_d6),file="module_promoters_module_transcripts_te_d6.txt",col.names = F)
+
+epi_interaction_files = list.files(pattern="^epi_d6_*")
+sub1=sub("^[epi_d6_]+(*)", "\\1", epi_interaction_files)
+sub2=sub("\\.csv.*", "", sub1)
+epi_module_interactions = lapply(epi_interaction_files, fastRead2)
+names(epi_module_interactions)=sub2
+
+pe_interaction_files = list.files(pattern="^pe_d8_*")
+sub1=sub("^[pe_d8_]+(*)", "\\1", pe_interaction_files)
+sub2=sub("\\.csv.*", "", sub1)
+pe_module_interactions = lapply(pe_interaction_files, fastRead2)
+names(pe_module_interactions)=sub2
+
+te_interaction_files = list.files(pattern="^te_d6_*")
+sub1=sub("^[te_d6_]+(*)", "\\1", te_interaction_files)
+sub2=sub("\\.csv.*", "", sub1)
+te_module_interactions = lapply(te_interaction_files, fastRead2)
+names(te_module_interactions)=sub2
+
+epi_d6_dna_rna_module_interaction=NULL
+epi_d6_interaction_df=NULL
+for (i in names(epi_module_interactions)){
+  epi_d6_dna_rna_module_interaction[[i]]=cbind(source_node=rep(names(epi_module_interactions[i]),nrow(epi_module_interactions[[i]])),target_node=rownames(epi_module_interactions[[i]]),p_value=epi_module_interactions[[i]]$p_value,chromosome=epi_module_interactions[[i]]$chromosome_name,downstream_gene=epi_module_interactions[[i]]$downstream)
+
+  epi_d6_interaction_df=rbind(epi_d6_interaction_df,epi_d6_dna_rna_module_interaction[[i]])
+}
+
+pe_d8_dna_rna_module_interaction=NULL
+pe_d8_interaction_df=NULL
+for (i in names(pe_module_interactions)){
+  pe_d8_dna_rna_module_interaction[[i]]=cbind(source_node=rep(names(pe_module_interactions[i]),nrow(pe_module_interactions[[i]])),target_node=rownames(pe_module_interactions[[i]]),p_value=pe_module_interactions[[i]]$p_value,chromosome=pe_module_interactions[[i]]$chromosome_name,downstream_gene=pe_module_interactions[[i]]$downstream)
+
+  pe_d8_interaction_df=rbind(pe_d8_interaction_df,pe_d8_dna_rna_module_interaction[[i]])
+}
+
+te_d6_dna_rna_module_interaction=NULL
+te_d6_interaction_df=NULL
+for (i in names(te_module_interactions)){
+  te_d6_dna_rna_module_interaction[[i]]=cbind(source_node=rep(names(te_module_interactions[i]),nrow(te_module_interactions[[i]])),target_node=rownames(te_module_interactions[[i]]),p_value=te_module_interactions[[i]]$p_value,chromosome=te_module_interactions[[i]]$chromosome_name,downstream_gene=te_module_interactions[[i]]$downstream)
+
+  te_d6_interaction_df=rbind(te_d6_interaction_df,te_d6_dna_rna_module_interaction[[i]])
+}
+
+epi_d6_dna_adjacency <- adjacency(wgcna_datExpr[["dna"]],
+selectCols = NULL,
+type = "signed",
+power = 12, #set soft-power to 12 as for module computation
+corFnc = "cor", corOptions = list(use = "p"),
+weights = NULL,
+distFnc = "dist", distOptions = "method = 'ward.D2'",
+weightArgNames = c("weights.x", "weights.y"))
+
+epi_d6_rna_adjacency <- adjacency(wgcna_datExpr[["rna"]],
+selectCols = NULL,
+type = "signed",
+power = 12, #set soft-power to 12 as for module computation
+corFnc = "cor", corOptions = list(use = "p"),
+weights = NULL,
+distFnc = "dist", distOptions = "method = 'ward.D2'",
+weightArgNames = c("weights.x", "weights.y"))
+
+pe_d8_dna_adjacency <- adjacency(wgcna_datExpr[["dna"]],
+selectCols = NULL,
+type = "signed",
+power = 12, #set soft-power to 12 as for module computation
+corFnc = "cor", corOptions = list(use = "p"),
+weights = NULL,
+distFnc = "dist", distOptions = "method = 'ward.D2'",
+weightArgNames = c("weights.x", "weights.y"))
+
+pe_d8_rna_adjacency <- adjacency(wgcna_datExpr[["rna"]],
+selectCols = NULL,
+type = "signed",
+power = 12, #set soft-power to 12 as for module computation
+corFnc = "cor", corOptions = list(use = "p"),
+weights = NULL,
+distFnc = "dist", distOptions = "method = 'ward.D2'",
+weightArgNames = c("weights.x", "weights.y"))
+
+te_d6_dna_adjacency <- adjacency(wgcna_datExpr[["dna"]],
+selectCols = NULL,
+type = "signed",
+power = 12, #set soft-power to 12 as for module computation
+corFnc = "cor", corOptions = list(use = "p"),
+weights = NULL,
+distFnc = "dist", distOptions = "method = 'ward.D2'",
+weightArgNames = c("weights.x", "weights.y"))
+
+te_d6_rna_adjacency <- adjacency(wgcna_datExpr[["rna"]],
+selectCols = NULL,
+type = "signed",
+power = 12, #set soft-power to 12 as for module computation
+corFnc = "cor", corOptions = list(use = "p"),
+weights = NULL,
+distFnc = "dist", distOptions = "method = 'ward.D2'",
+weightArgNames = c("weights.x", "weights.y"))
+
+````
+
+
+````{r selected gens adjac matrix}
+
+epi_d6_dna_adjacency_selected=epi_d6_dna_adjacency[module_promoters_epi_d6,module_promoters_epi_d6]
+epi_d6_rna_adjacency_selected=epi_d6_rna_adjacency[module_transcripts_epi_d6,module_transcripts_epi_d6]
+
+pe_d8_dna_adjacency_selected=pe_d8_dna_adjacency[module_promoters_pe_d8,module_promoters_pe_d8]
+pe_d8_rna_adjacency_selected=pe_d8_rna_adjacency[module_transcripts_pe_d8,module_transcripts_pe_d8]
+
+te_d6_dna_adjacency_selected=te_d6_dna_adjacency[module_promoters_te_d6,module_promoters_te_d6]
+te_d6_rna_adjacency_selected=te_d6_rna_adjacency[module_transcripts_te_d6,module_transcripts_te_d6]
+
+````
+
+````{r attempt to network}
+
+module_promoters_epi_d6_coord=NULL
+module_promoters_epi_d6_coord$source_node=module_promoters_epi_d6
+module_promoters_epi_d6_coord$x_source=rep(1,length(module_promoters_epi_d6))
+module_promoters_epi_d6_coord$y_source=seq(to=(100/length(module_promoters_epi_d6)), from=100, by=-(100/length(module_promoters_epi_d6)))
+module_promoters_epi_d6_coord=as.data.frame(module_promoters_epi_d6_coord,col.names=names(module_promoters_epi_d6_coord))
+
+module_transcripts_epi_d6_coord=NULL
+module_transcripts_epi_d6_coord$source_node=module_transcripts_epi_d6
+module_transcripts_epi_d6_coord$x_source=rep(2,length(module_transcripts_epi_d6))
+module_transcripts_epi_d6_coord$y_source=seq(to=(100/length(module_transcripts_epi_d6)), from=100, by=-(100/length(module_transcripts_epi_d6)))
+module_transcripts_epi_d6_coord=as.data.frame(module_transcripts_epi_d6_coord,col.names=names(module_transcripts_epi_d6_coord))
+
+epi_modules_coord=rbind(module_promoters_epi_d6_coord,module_transcripts_epi_d6_coord)
+
+
+epi_d6_module_arrows=NULL
+
+  
+epi_arrow_dna_dna=epi_d6_interaction_df[epi_d6_interaction_df[,"source_node"]%in%module_promoters_epi_d6 & epi_d6_interaction_df[,"target_node"]%in%module_promoters_epi_d6,]
+epi_arrow_dna_dna=cbind(epi_arrow_dna_dna,x_arrow=rep(1.13,nrow(epi_arrow_dna_dna)),xend_arrow=rep(1.13,nrow(epi_arrow_dna_dna)))
+
+y=NULL
+
+for (i in epi_arrow_dna_dna[,"source_node"]){
+  
+  y=c(y,module_promoters_epi_d6_coord$y_source[module_promoters_epi_d6_coord$source_node==i])  
+  
+}
+
+yend=NULL
+
+for (i in epi_arrow_dna_dna[,"target_node"]){
+  
+  yend=c(yend,module_promoters_epi_d6_coord$y_source[module_promoters_epi_d6_coord$source_node==i])  
+  
+}
+
+epi_arrow_dna_dna=cbind(epi_arrow_dna_dna,y_arrow=y,yend_arrow=yend)
+
+epi_arrow_dna_rna=epi_d6_interaction_df[epi_d6_interaction_df[,"source_node"]%in%module_promoters_epi_d6 & epi_d6_interaction_df[,"target_node"]%in%module_transcripts_epi_d6,]
+epi_arrow_dna_rna=cbind(epi_arrow_dna_rna,x_arrow=rep(1.13,nrow(epi_arrow_dna_rna)),xend_arrow=rep(1.98,nrow(epi_arrow_dna_rna)))
+
+y=NULL
+
+for (i in epi_arrow_dna_rna[,"source_node"]){
+  
+  y=c(y,module_promoters_epi_d6_coord$y_source[module_promoters_epi_d6_coord$source_node==i])  
+  
+}
+
+yend=NULL
+
+for (i in epi_arrow_dna_rna[,"target_node"]){
+  
+  yend=c(yend,module_transcripts_epi_d6_coord$y_source[module_transcripts_epi_d6_coord$source_node==i])  
+  
+}
+
+epi_arrow_dna_rna=cbind(epi_arrow_dna_rna,y_arrow=y,yend_arrow=yend)
+
+epi_arrow_rna_rna=epi_d6_interaction_df[epi_d6_interaction_df[,"source_node"]%in%module_transcripts_epi_d6 & epi_d6_interaction_df[,"target_node"]%in%module_transcripts_epi_d6,]
+epi_arrow_rna_rna=cbind(epi_arrow_rna_rna,x_arrow=rep(1.98,nrow(epi_arrow_rna_rna)),xend_arrow=rep(1.98,nrow(epi_arrow_rna_rna)))
+
+
+y=NULL
+
+for (i in epi_arrow_rna_rna[,"source_node"]){
+  
+  y=c(y,module_transcripts_epi_d6_coord$y_source[module_transcripts_epi_d6_coord$source_node==i])  
+  
+}
+
+yend=NULL
+
+for (i in epi_arrow_rna_rna[,"target_node"]){
+  
+  yend=c(yend,module_transcripts_epi_d6_coord$y_source[module_transcripts_epi_d6_coord$source_node==i])  
+  
+}
+
+epi_arrow_rna_rna=cbind(epi_arrow_rna_rna,y_arrow=y,yend_arrow=yend)
+
+
+epi_arrow_rna_dna=epi_d6_interaction_df[epi_d6_interaction_df[,"source_node"]%in%module_transcripts_epi_d6 & epi_d6_interaction_df[,"target_node"]%in%module_promoters_epi_d6,]
+epi_arrow_rna_dna=cbind(epi_arrow_rna_dna,x_arrow=rep(1.98,nrow(epi_arrow_rna_dna)),xend_arrow=rep(1.13,nrow(epi_arrow_rna_dna)))
+
+
+y=NULL
+
+for (i in epi_arrow_rna_dna[,"source_node"]){
+  
+  y=c(y,module_transcripts_epi_d6_coord$y_source[module_transcripts_epi_d6_coord$source_node==i])  
+  
+}
+
+yend=NULL
+
+for (i in epi_arrow_rna_dna[,"target_node"]){
+  
+  yend=c(yend,module_promoters_epi_d6_coord$y_source[module_promoters_epi_d6_coord$source_node==i])  
+  
+}
+
+epi_arrow_rna_dna=cbind(epi_arrow_rna_dna,y_arrow=y,yend_arrow=yend)
+
+
+epi_interaction_arrows=rbind(epi_arrow_dna_dna,epi_arrow_dna_rna,epi_arrow_rna_rna,epi_arrow_rna_dna)
+
+epi_modules_coord$module=ifelse(epi_modules_coord$x_source==1,"dna","rna")
+epi_interaction_arrows=cbind(epi_interaction_arrows,module_origin=ifelse(epi_interaction_arrows[,"x_arrow"]==1.13,"dna","rna"))
+
+epi_modules_interaction_plot=ggplot(epi_modules_coord,aes(x=x_source, y=y_source, label=source_node))+
+  geom_text(aes(label=source_node, color=as.character(module)),hjust=0,vjust=0)+
+  geom_point(aes(x = ifelse(x_source==1,1.13,1.98),y=y_source, color=as.character(module)))+
+  geom_curve(data=as.data.frame(epi_interaction_arrows),mapping=aes(x=as.numeric(epi_interaction_arrows[,"x_arrow"]),y=as.numeric(epi_interaction_arrows[,"y_arrow"]),xend=as.numeric(epi_interaction_arrows[,"xend_arrow"]),yend=as.numeric(epi_interaction_arrows[,"yend_arrow"]),color=as.character(epi_interaction_arrows[,"module_origin"])), curvature = -0.2, arrow=arrow(), size=1)+
+  scale_color_manual(values=c("#13d370","purple"))
+
+
+
+module_promoters_pe_d8_coord=NULL
+module_promoters_pe_d8_coord$source_node=module_promoters_pe_d8
+module_promoters_pe_d8_coord$x_source=rep(1,length(module_promoters_pe_d8))
+module_promoters_pe_d8_coord$y_source=seq(to=(100/length(module_promoters_pe_d8)), from=100, by=-(100/length(module_promoters_pe_d8)))
+module_promoters_pe_d8_coord=as.data.frame(module_promoters_pe_d8_coord,col.names=names(module_promoters_pe_d8_coord))
+
+module_transcripts_pe_d8_coord=NULL
+module_transcripts_pe_d8_coord$source_node=module_transcripts_pe_d8
+module_transcripts_pe_d8_coord$x_source=rep(2,length(module_transcripts_pe_d8))
+module_transcripts_pe_d8_coord$y_source=seq(to=(100/length(module_transcripts_pe_d8)), from=100, by=-(100/length(module_transcripts_pe_d8)))
+module_transcripts_pe_d8_coord=as.data.frame(module_transcripts_pe_d8_coord,col.names=names(module_transcripts_pe_d8_coord))
+
+pe_modules_coord=rbind(module_promoters_pe_d8_coord,module_transcripts_pe_d8_coord)
+
+pe_d8_module_arrows=NULL
+
+  
+pe_arrow_dna_dna=pe_d8_interaction_df[pe_d8_interaction_df[,"source_node"]%in%module_promoters_pe_d8 & pe_d8_interaction_df[,"target_node"]%in%module_promoters_pe_d8,]
+pe_arrow_dna_dna=cbind(pe_arrow_dna_dna,x_arrow=rep(1.13,nrow(pe_arrow_dna_dna)),xend_arrow=rep(1.13,nrow(pe_arrow_dna_dna)))
+
+y=NULL
+
+for (i in pe_arrow_dna_dna[,"source_node"]){
+  
+  y=c(y,module_promoters_pe_d8_coord$y_source[module_promoters_pe_d8_coord$source_node==i])  
+  
+}
+
+yend=NULL
+
+for (i in pe_arrow_dna_dna[,"target_node"]){
+  
+  yend=c(yend,module_promoters_pe_d8_coord$y_source[module_promoters_pe_d8_coord$source_node==i])  
+  
+}
+
+pe_arrow_dna_dna=cbind(pe_arrow_dna_dna,y_arrow=y,yend_arrow=yend)
+
+pe_arrow_dna_rna=pe_d8_interaction_df[pe_d8_interaction_df[,"source_node"]%in%module_promoters_pe_d8 & pe_d8_interaction_df[,"target_node"]%in%module_transcripts_pe_d8,]
+pe_arrow_dna_rna=cbind(pe_arrow_dna_rna,x_arrow=rep(1.13,nrow(pe_arrow_dna_rna)),xend_arrow=rep(1.98,nrow(pe_arrow_dna_rna)))
+
+y=NULL
+
+for (i in pe_arrow_dna_rna[,"source_node"]){
+  
+  y=c(y,module_promoters_pe_d8_coord$y_source[module_promoters_pe_d8_coord$source_node==i])  
+  
+}
+
+yend=NULL
+
+for (i in pe_arrow_dna_rna[,"target_node"]){
+  
+  yend=c(yend,module_transcripts_pe_d8_coord$y_source[module_transcripts_pe_d8_coord$source_node==i])  
+  
+}
+
+pe_arrow_dna_rna=cbind(pe_arrow_dna_rna,y_arrow=y,yend_arrow=yend)
+
+pe_arrow_rna_rna=pe_d8_interaction_df[pe_d8_interaction_df[,"source_node"]%in%module_transcripts_pe_d8 & pe_d8_interaction_df[,"target_node"]%in%module_transcripts_pe_d8,]
+pe_arrow_rna_rna=cbind(pe_arrow_rna_rna,x_arrow=rep(1.98,nrow(pe_arrow_rna_rna)),xend_arrow=rep(1.98,nrow(pe_arrow_rna_rna)))
+
+
+y=NULL
+
+for (i in pe_arrow_rna_rna[,"source_node"]){
+  
+  y=c(y,module_transcripts_pe_d8_coord$y_source[module_transcripts_pe_d8_coord$source_node==i])  
+  
+}
+
+yend=NULL
+
+for (i in pe_arrow_rna_rna[,"target_node"]){
+  
+  yend=c(yend,module_transcripts_pe_d8_coord$y_source[module_transcripts_pe_d8_coord$source_node==i])  
+  
+}
+
+pe_arrow_rna_rna=cbind(pe_arrow_rna_rna,y_arrow=y,yend_arrow=yend)
+
+
+pe_arrow_rna_dna=pe_d8_interaction_df[pe_d8_interaction_df[,"source_node"]%in%module_transcripts_pe_d8 & pe_d8_interaction_df[,"target_node"]%in%module_promoters_pe_d8,]
+pe_arrow_rna_dna=cbind(pe_arrow_rna_dna,x_arrow=rep(1.98,nrow(pe_arrow_rna_dna)),xend_arrow=rep(1.13,nrow(pe_arrow_rna_dna)))
+
+
+y=NULL
+
+for (i in pe_arrow_rna_dna[,"source_node"]){
+  
+  y=c(y,module_transcripts_pe_d8_coord$y_source[module_transcripts_pe_d8_coord$source_node==i])  
+  
+}
+
+yend=NULL
+
+for (i in pe_arrow_rna_dna[,"target_node"]){
+  
+  yend=c(yend,module_promoters_pe_d8_coord$y_source[module_promoters_pe_d8_coord$source_node==i])  
+  
+}
+
+pe_arrow_rna_dna=cbind(pe_arrow_rna_dna,y_arrow=y,yend_arrow=yend)
+
+
+pe_interaction_arrows=rbind(pe_arrow_dna_dna,pe_arrow_dna_rna,pe_arrow_rna_rna,pe_arrow_rna_dna)
+
+
+pe_modules_coord$module=ifelse(pe_modules_coord$x_source==1,"dna","rna")
+pe_interaction_arrows=cbind(pe_interaction_arrows,module_origin=ifelse(pe_interaction_arrows[,"x_arrow"]==1.13,"dna","rna"))
+
+pe_modules_interaction_plot=ggplot(pe_modules_coord,aes(x=x_source, y=y_source, label=source_node))+
+  geom_text(aes(label=source_node, color=as.character(module)),hjust=0,vjust=0)+
+  geom_point(aes(x = ifelse(x_source==1,1.13,1.98),y=y_source, color=as.character(module)))+
+  geom_curve(data=as.data.frame(pe_interaction_arrows),mapping=aes(x=as.numeric(pe_interaction_arrows[,"x_arrow"]),y=as.numeric(pe_interaction_arrows[,"y_arrow"]),xend=as.numeric(pe_interaction_arrows[,"xend_arrow"]),yend=as.numeric(pe_interaction_arrows[,"yend_arrow"]),color=as.character(pe_interaction_arrows[,"module_origin"])), curvature = -0.2, arrow=arrow(), size=1)+
+  scale_color_manual(values=c("#13d370","purple"))
+
+
+
+
+
+module_promoters_te_d6_coord=NULL
+module_promoters_te_d6_coord$source_node=module_promoters_te_d6
+module_promoters_te_d6_coord$x_source=rep(1,length(module_promoters_te_d6))
+module_promoters_te_d6_coord$y_source=seq(to=(100/length(module_promoters_te_d6)), from=100, by=-(100/length(module_promoters_te_d6)))
+module_promoters_te_d6_coord=as.data.frame(module_promoters_te_d6_coord,col.names=names(module_promoters_te_d6_coord))
+
+module_transcripts_te_d6_coord=NULL
+module_transcripts_te_d6_coord$source_node=module_transcripts_te_d6
+module_transcripts_te_d6_coord$x_source=rep(2,length(module_transcripts_te_d6))
+module_transcripts_te_d6_coord$y_source=seq(to=(100/length(module_transcripts_te_d6)), from=100, by=-(100/length(module_transcripts_te_d6)))
+module_transcripts_te_d6_coord=as.data.frame(module_transcripts_te_d6_coord,col.names=names(module_transcripts_te_d6_coord))
+
+te_modules_coord=rbind(module_promoters_te_d6_coord,module_transcripts_te_d6_coord)
+
+te_d6_module_arrows=NULL
+
+  
+te_arrow_dna_dna=te_d6_interaction_df[te_d6_interaction_df[,"source_node"]%in%module_promoters_te_d6 & te_d6_interaction_df[,"target_node"]%in%module_promoters_te_d6,]
+te_arrow_dna_dna=cbind(te_arrow_dna_dna,x_arrow=rep(1.13,nrow(te_arrow_dna_dna)),xend_arrow=rep(1.13,nrow(te_arrow_dna_dna)))
+
+y=NULL
+
+for (i in te_arrow_dna_dna[,"source_node"]){
+  
+  y=c(y,module_promoters_te_d6_coord$y_source[module_promoters_te_d6_coord$source_node==i])  
+  
+}
+
+yend=NULL
+
+for (i in te_arrow_dna_dna[,"target_node"]){
+  
+  yend=c(yend,module_promoters_te_d6_coord$y_source[module_promoters_te_d6_coord$source_node==i])  
+  
+}
+
+te_arrow_dna_dna=cbind(te_arrow_dna_dna,y_arrow=y,yend_arrow=yend)
+
+te_arrow_dna_rna=te_d6_interaction_df[te_d6_interaction_df[,"source_node"]%in%module_promoters_te_d6 & te_d6_interaction_df[,"target_node"]%in%module_transcripts_te_d6,]
+te_arrow_dna_rna=cbind(te_arrow_dna_rna,x_arrow=rep(1.13,nrow(te_arrow_dna_rna)),xend_arrow=rep(1.98,nrow(te_arrow_dna_rna)))
+
+y=NULL
+
+for (i in te_arrow_dna_rna[,"source_node"]){
+  
+  y=c(y,module_promoters_te_d6_coord$y_source[module_promoters_te_d6_coord$source_node==i])  
+  
+}
+
+yend=NULL
+
+for (i in te_arrow_dna_rna[,"target_node"]){
+  
+  yend=c(yend,module_transcripts_te_d6_coord$y_source[module_transcripts_te_d6_coord$source_node==i])  
+  
+}
+
+te_arrow_dna_rna=cbind(te_arrow_dna_rna,y_arrow=y,yend_arrow=yend)
+
+te_arrow_rna_rna=te_d6_interaction_df[te_d6_interaction_df[,"source_node"]%in%module_transcripts_te_d6 & te_d6_interaction_df[,"target_node"]%in%module_transcripts_te_d6,]
+te_arrow_rna_rna=cbind(te_arrow_rna_rna,x_arrow=rep(1.98,nrow(te_arrow_rna_rna)),xend_arrow=rep(1.98,nrow(te_arrow_rna_rna)))
+
+
+y=NULL
+
+for (i in te_arrow_rna_rna[,"source_node"]){
+  
+  y=c(y,module_transcripts_te_d6_coord$y_source[module_transcripts_te_d6_coord$source_node==i])  
+  
+}
+
+yend=NULL
+
+for (i in te_arrow_rna_rna[,"target_node"]){
+  
+  yend=c(yend,module_transcripts_te_d6_coord$y_source[module_transcripts_te_d6_coord$source_node==i])  
+  
+}
+
+te_arrow_rna_rna=cbind(te_arrow_rna_rna,y_arrow=y,yend_arrow=yend)
+
+
+te_arrow_rna_dna=te_d6_interaction_df[te_d6_interaction_df[,"source_node"]%in%module_transcripts_te_d6 & te_d6_interaction_df[,"target_node"]%in%module_promoters_te_d6,]
+te_arrow_rna_dna=cbind(te_arrow_rna_dna,x_arrow=rep(1.98,nrow(te_arrow_rna_dna)),xend_arrow=rep(1.13,nrow(te_arrow_rna_dna)))
+
+
+y=NULL
+
+for (i in te_arrow_rna_dna[,"source_node"]){
+  
+  y=c(y,module_transcripts_te_d6_coord$y_source[module_transcripts_te_d6_coord$source_node==i])  
+  
+}
+
+yend=NULL
+
+for (i in te_arrow_rna_dna[,"target_node"]){
+  
+  yend=c(yend,module_promoters_te_d6_coord$y_source[module_promoters_te_d6_coord$source_node==i])  
+  
+}
+
+te_arrow_rna_dna=cbind(te_arrow_rna_dna,y_arrow=y,yend_arrow=yend)
+
+
+te_interaction_arrows=rbind(te_arrow_dna_dna,te_arrow_dna_rna,te_arrow_rna_rna,te_arrow_rna_dna)
+
+
+te_modules_coord$module=ifelse(te_modules_coord$x_source==1,"dna","rna")
+te_interaction_arrows=cbind(te_interaction_arrows,module_origin=ifelse(te_interaction_arrows[,"x_arrow"]==1.13,"dna","rna"))
+
+te_modules_interaction_plot=ggplot(te_modules_coord,aes(x=x_source, y=y_source, label=source_node))+
+  geom_text(aes(label=source_node, color=as.character(module)),hjust=0,vjust=0)+
+  geom_point(aes(x = ifelse(x_source==1,1.13,1.98),y=y_source, color=as.character(module)))+
+  geom_curve(data=as.data.frame(te_interaction_arrows),mapping=aes(x=as.numeric(te_interaction_arrows[,"x_arrow"]),y=as.numeric(te_interaction_arrows[,"y_arrow"]),xend=as.numeric(te_interaction_arrows[,"xend_arrow"]),yend=as.numeric(te_interaction_arrows[,"yend_arrow"]),color=as.character(te_interaction_arrows[,"module_origin"])), curvature = -0.2, arrow=arrow(), size=1)+
+  scale_color_manual(values=c("#13d370","purple"))
+
+
+
+
+epi_d6_dna_size = NULL
+
+for (i in module_promoters_epi_d6){
+  epi_d6_dna_size=c(epi_d6_dna_size,sum(epi_interaction_arrows[,"source_node"]==i))
+}
+names(epi_d6_dna_size)=module_promoters_epi_d6
+
+
+
+epi_d6_rna_size = NULL
+
+for (i in module_transcripts_epi_d6){
+  
+  epi_d6_rna_size=c(epi_d6_rna_size,sum(epi_interaction_arrows[,"source_node"]==i))
+}
+names(epi_d6_rna_size)=module_transcripts_epi_d6
+
+
+pe_d8_dna_size = NULL
+
+for (i in module_promoters_pe_d8){
+  pe_d8_dna_size=c(pe_d8_dna_size,sum(pe_interaction_arrows[,"source_node"]==i))
+}
+names(pe_d8_dna_size)=module_promoters_pe_d8
+
+
+pe_d8_rna_size = NULL
+
+for (i in module_transcripts_pe_d8){
+  pe_d8_rna_size=c(pe_d8_rna_size,sum(pe_interaction_arrows[,"source_node"]==i))
+}
+names(pe_d8_rna_size)=module_transcripts_pe_d8
+
+
+te_d6_dna_size = NULL
+
+for (i in module_promoters_te_d6){
+  te_d6_dna_size=c(te_d6_dna_size,sum(te_interaction_arrows[,"source_node"]==i))
+}
+names(te_d6_dna_size)=module_promoters_te_d6
+
+
+te_d6_rna_size = NULL
+
+for (i in module_transcripts_te_d6){
+  te_d6_rna_size=c(te_d6_rna_size,sum(te_interaction_arrows[,"source_node"]==i))
+}
+names(te_d6_rna_size)=module_transcripts_te_d6
+
+# save.image("2021_06_14_network.RData")
+load("2021_06_14_network.RData")
+````
+
+
+````{r apply PCA to binarized module adjacency matrices}
+
+epi_d6_dna_module_acp=ACP(ifelse(epi_d6_dna_adjacency_selected>median(epi_d6_dna_adjacency_selected),1,0))
+epi_d6_rna_module_acp=ACP(ifelse(epi_d6_rna_adjacency_selected>median(epi_d6_rna_adjacency_selected),1,0))
+
+pe_d8_dna_module_acp=ACP(ifelse(pe_d8_dna_adjacency_selected>median(pe_d8_dna_adjacency_selected),1,0))
+pe_d8_rna_module_acp=ACP(ifelse(pe_d8_rna_adjacency_selected>median(pe_d8_rna_adjacency_selected),1,0))
+
+te_d6_dna_module_acp=ACP(ifelse(te_d6_dna_adjacency_selected>median(te_d6_dna_adjacency_selected),1,0))
+te_d6_rna_module_acp=ACP(ifelse(te_d6_rna_adjacency_selected>median(te_d6_rna_adjacency_selected),1,0))
+
+````
+
+
+````{r building 3D arrows}
+
+epi_d6_module_3d_arrows=NULL
+
+  
+epi_3d_arrow_dna_dna=epi_d6_interaction_df[epi_d6_interaction_df[,"source_node"]%in%module_promoters_epi_d6 & epi_d6_interaction_df[,"target_node"]%in%module_promoters_epi_d6,c("source_node","target_node")]
+
+xyz=NULL
+for (i in epi_3d_arrow_dna_dna[,"source_node"]){
+  xyz=rbind(xyz,epi_d6_dna_module_acp$x[rownames(epi_d6_dna_module_acp$x)==i,c(1:3)])  
+}
+
+
+
+xyz_end=NULL
+for (i in epi_3d_arrow_dna_dna[,"target_node"]){
+  xyz_end=rbind(xyz_end,epi_d6_dna_module_acp$x[rownames(epi_d6_dna_module_acp$x)==i,c(1:3)])  
+}
+
+epi_dna_dna_3d_arrows=data.frame(epi_3d_arrow_dna_dna,x_3d_arrow=xyz[,1],y_3d_arrow=xyz[,2], z_3d_arrow=xyz[,3],xend_3d_arrow=xyz_end[,1],yend_3d_arrow=xyz_end[,2],zend_3d_arrow=xyz_end[,3])
+
+
+
+
+
+pe_d8_module_3d_arrows=NULL
+
+  
+pe_3d_arrow_dna_dna=pe_d8_interaction_df[pe_d8_interaction_df[,"source_node"]%in%module_promoters_pe_d8 & pe_d8_interaction_df[,"target_node"]%in%module_promoters_pe_d8,c("source_node","target_node")]
+
+xyz=NULL
+for (i in pe_3d_arrow_dna_dna[,"source_node"]){
+  xyz=rbind(xyz,pe_d8_dna_module_acp$x[rownames(pe_d8_dna_module_acp$x)==i,c(1:3)])  
+}
+
+
+
+xyz_end=NULL
+for (i in pe_3d_arrow_dna_dna[,"target_node"]){
+  xyz_end=rbind(xyz_end,pe_d8_dna_module_acp$x[rownames(pe_d8_dna_module_acp$x)==i,c(1:3)])  
+}
+
+pe_dna_dna_3d_arrows=data.frame(pe_3d_arrow_dna_dna,x_3d_arrow=xyz[,1],y_3d_arrow=xyz[,2], z_3d_arrow=xyz[,3],xend_3d_arrow=xyz_end[,1],yend_3d_arrow=xyz_end[,2],zend_3d_arrow=xyz_end[,3])
+
+
+
+
+
+te_d6_module_3d_arrows=NULL
+
+  
+te_3d_arrow_dna_dna=te_d6_interaction_df[te_d6_interaction_df[,"source_node"]%in%module_promoters_te_d6 & te_d6_interaction_df[,"target_node"]%in%module_promoters_te_d6,c("source_node","target_node")]
+
+xyz=NULL
+for (i in te_3d_arrow_dna_dna[,"source_node"]){
+  xyz=rbind(xyz,te_d6_dna_module_acp$x[rownames(te_d6_dna_module_acp$x)==i,c(1:3)])  
+}
+
+
+
+xyz_end=NULL
+for (i in te_3d_arrow_dna_dna[,"target_node"]){
+  xyz_end=rbind(xyz_end,te_d6_dna_module_acp$x[rownames(te_d6_dna_module_acp$x)==i,c(1:3)])  
+}
+
+te_dna_dna_3d_arrows=data.frame(te_3d_arrow_dna_dna,x_3d_arrow=xyz[,1],y_3d_arrow=xyz[,2], z_3d_arrow=xyz[,3],xend_3d_arrow=xyz_end[,1],yend_3d_arrow=xyz_end[,2],zend_3d_arrow=xyz_end[,3])
+
+
+
+
+
+
+epi_d6_module_3d_arrows=NULL
+
+  
+epi_3d_arrow_rna_rna=epi_d6_interaction_df[epi_d6_interaction_df[,"source_node"]%in%module_transcripts_epi_d6 & epi_d6_interaction_df[,"target_node"]%in%module_transcripts_epi_d6,c("source_node","target_node")]
+
+xyz=NULL
+for (i in epi_3d_arrow_rna_rna[,"source_node"]){
+  xyz=rbind(xyz,epi_d6_rna_module_acp$x[rownames(epi_d6_rna_module_acp$x)==i,c(1:3)]+5)  
+}
+
+
+
+xyz_end=NULL
+for (i in epi_3d_arrow_rna_rna[,"target_node"]){
+  xyz_end=rbind(xyz_end,epi_d6_rna_module_acp$x[rownames(epi_d6_rna_module_acp$x)==i,c(1:3)]+5)  
+}
+
+epi_rna_rna_3d_arrows=data.frame(epi_3d_arrow_rna_rna,x_3d_arrow=xyz[,1],y_3d_arrow=xyz[,2], z_3d_arrow=xyz[,3],xend_3d_arrow=xyz_end[,1],yend_3d_arrow=xyz_end[,2],zend_3d_arrow=xyz_end[,3])
+
+
+
+
+
+pe_d8_module_3d_arrows=NULL
+
+  
+pe_3d_arrow_rna_rna=pe_d8_interaction_df[pe_d8_interaction_df[,"source_node"]%in%module_transcripts_pe_d8 & pe_d8_interaction_df[,"target_node"]%in%module_transcripts_pe_d8,c("source_node","target_node")]
+
+xyz=NULL
+for (i in pe_3d_arrow_rna_rna[,"source_node"]){
+  xyz=rbind(xyz,pe_d8_rna_module_acp$x[rownames(pe_d8_rna_module_acp$x)==i,c(1:3)]+5)  
+}
+
+
+
+xyz_end=NULL
+for (i in pe_3d_arrow_rna_rna[,"target_node"]){
+  xyz_end=rbind(xyz_end,pe_d8_rna_module_acp$x[rownames(pe_d8_rna_module_acp$x)==i,c(1:3)]+5)  
+}
+
+pe_rna_rna_3d_arrows=data.frame(pe_3d_arrow_rna_rna,x_3d_arrow=xyz[,1],y_3d_arrow=xyz[,2], z_3d_arrow=xyz[,3],xend_3d_arrow=xyz_end[,1],yend_3d_arrow=xyz_end[,2],zend_3d_arrow=xyz_end[,3])
+
+
+
+
+
+te_d6_module_3d_arrows=NULL
+
+  
+te_3d_arrow_rna_rna=te_d6_interaction_df[te_d6_interaction_df[,"source_node"]%in%module_transcripts_te_d6 & te_d6_interaction_df[,"target_node"]%in%module_transcripts_te_d6,c("source_node","target_node")]
+
+xyz=NULL
+for (i in te_3d_arrow_rna_rna[,"source_node"]){
+  xyz=rbind(xyz,te_d6_rna_module_acp$x[rownames(te_d6_rna_module_acp$x)==i,c(1:3)]+5)  
+}
+
+
+
+xyz_end=NULL
+for (i in te_3d_arrow_rna_rna[,"target_node"]){
+  xyz_end=rbind(xyz_end,te_d6_rna_module_acp$x[rownames(te_d6_rna_module_acp$x)==i,c(1:3)]+5)  
+}
+
+te_rna_rna_3d_arrows=data.frame(te_3d_arrow_rna_rna,x_3d_arrow=xyz[,1],y_3d_arrow=xyz[,2], z_3d_arrow=xyz[,3],xend_3d_arrow=xyz_end[,1],yend_3d_arrow=xyz_end[,2],zend_3d_arrow=xyz_end[,3])
+
+
+
+
+
+
+
+
+
+epi_d6_module_3d_arrows=NULL
+
+  
+epi_3d_arrow_dna_rna=epi_d6_interaction_df[epi_d6_interaction_df[,"source_node"]%in%module_promoters_epi_d6 & epi_d6_interaction_df[,"target_node"]%in%module_transcripts_epi_d6,c("source_node","target_node")]
+
+xyz=NULL
+for (i in epi_3d_arrow_dna_rna[,"source_node"]){
+  xyz=rbind(xyz,epi_d6_dna_module_acp$x[rownames(epi_d6_dna_module_acp$x)==i,c(1:3)])  
+}
+
+
+
+xyz_end=NULL
+for (i in epi_3d_arrow_dna_rna[,"target_node"]){
+  xyz_end=rbind(xyz_end,epi_d6_rna_module_acp$x[rownames(epi_d6_rna_module_acp$x)==i,c(1:3)]+5)  
+}
+
+epi_dna_rna_3d_arrows=data.frame(epi_3d_arrow_dna_rna,x_3d_arrow=xyz[,1],y_3d_arrow=xyz[,2], z_3d_arrow=xyz[,3],xend_3d_arrow=xyz_end[,1],yend_3d_arrow=xyz_end[,2],zend_3d_arrow=xyz_end[,3])
+
+
+
+
+
+pe_d8_module_3d_arrows=NULL
+
+  
+pe_3d_arrow_dna_rna=pe_d8_interaction_df[pe_d8_interaction_df[,"source_node"]%in%module_promoters_pe_d8 & pe_d8_interaction_df[,"target_node"]%in%module_transcripts_pe_d8,c("source_node","target_node")]
+
+xyz=NULL
+for (i in pe_3d_arrow_dna_rna[,"source_node"]){
+  xyz=rbind(xyz,pe_d8_dna_module_acp$x[rownames(pe_d8_dna_module_acp$x)==i,c(1:3)])  
+}
+
+
+
+xyz_end=NULL
+for (i in pe_3d_arrow_dna_rna[,"target_node"]){
+  xyz_end=rbind(xyz_end,pe_d8_rna_module_acp$x[rownames(pe_d8_rna_module_acp$x)==i,c(1:3)]+5)  
+}
+
+pe_dna_rna_3d_arrows=data.frame(pe_3d_arrow_dna_rna,x_3d_arrow=xyz[,1],y_3d_arrow=xyz[,2], z_3d_arrow=xyz[,3],xend_3d_arrow=xyz_end[,1],yend_3d_arrow=xyz_end[,2],zend_3d_arrow=xyz_end[,3])
+
+
+
+
+
+te_d6_module_3d_arrows=NULL
+
+  
+te_3d_arrow_dna_rna=te_d6_interaction_df[te_d6_interaction_df[,"source_node"]%in%module_promoters_te_d6 & te_d6_interaction_df[,"target_node"]%in%module_transcripts_te_d6,c("source_node","target_node")]
+
+xyz=NULL
+for (i in te_3d_arrow_dna_rna[,"source_node"]){
+  xyz=rbind(xyz,te_d6_dna_module_acp$x[rownames(te_d6_dna_module_acp$x)==i,c(1:3)])  
+}
+
+
+
+xyz_end=NULL
+for (i in te_3d_arrow_dna_rna[,"target_node"]){
+  xyz_end=rbind(xyz_end,te_d6_rna_module_acp$x[rownames(te_d6_rna_module_acp$x)==i,c(1:3)]+5)  
+}
+
+te_dna_rna_3d_arrows=data.frame(te_3d_arrow_dna_rna,x_3d_arrow=xyz[,1],y_3d_arrow=xyz[,2], z_3d_arrow=xyz[,3],xend_3d_arrow=xyz_end[,1],yend_3d_arrow=xyz_end[,2],zend_3d_arrow=xyz_end[,3])
+
+
+
+
+
+
+epi_d6_module_3d_arrows=NULL
+
+  
+epi_3d_arrow_rna_dna=epi_d6_interaction_df[epi_d6_interaction_df[,"source_node"]%in%module_transcripts_epi_d6 & epi_d6_interaction_df[,"target_node"]%in%module_promoters_epi_d6,c("source_node","target_node")]
+
+xyz=NULL
+for (i in epi_3d_arrow_rna_dna[,"source_node"]){
+  xyz=rbind(xyz,epi_d6_rna_module_acp$x[rownames(epi_d6_rna_module_acp$x)==i,c(1:3)]+5)  
+}
+
+
+
+xyz_end=NULL
+for (i in epi_3d_arrow_rna_dna[,"target_node"]){
+  xyz_end=rbind(xyz_end,epi_d6_dna_module_acp$x[rownames(epi_d6_dna_module_acp$x)==i,c(1:3)])  
+}
+
+epi_rna_dna_3d_arrows=data.frame(epi_3d_arrow_rna_dna,x_3d_arrow=xyz[,1],y_3d_arrow=xyz[,2], z_3d_arrow=xyz[,3],xend_3d_arrow=xyz_end[,1],yend_3d_arrow=xyz_end[,2],zend_3d_arrow=xyz_end[,3])
+
+
+
+
+
+pe_d8_module_3d_arrows=NULL
+
+  
+pe_3d_arrow_rna_dna=pe_d8_interaction_df[pe_d8_interaction_df[,"source_node"]%in%module_transcripts_pe_d8 & pe_d8_interaction_df[,"target_node"]%in%module_promoters_pe_d8,c("source_node","target_node")]
+
+xyz=NULL
+for (i in pe_3d_arrow_rna_dna[,"source_node"]){
+  xyz=rbind(xyz,pe_d8_rna_module_acp$x[rownames(pe_d8_rna_module_acp$x)==i,c(1:3)]+5)  
+}
+
+
+
+xyz_end=NULL
+for (i in pe_3d_arrow_rna_dna[,"target_node"]){
+  xyz_end=rbind(xyz_end,pe_d8_dna_module_acp$x[rownames(pe_d8_dna_module_acp$x)==i,c(1:3)])  
+}
+
+pe_rna_dna_3d_arrows=data.frame(pe_3d_arrow_rna_dna,x_3d_arrow=xyz[,1],y_3d_arrow=xyz[,2], z_3d_arrow=xyz[,3],xend_3d_arrow=xyz_end[,1],yend_3d_arrow=xyz_end[,2],zend_3d_arrow=xyz_end[,3])
+
+
+
+
+
+te_d6_module_3d_arrows=NULL
+
+  
+te_3d_arrow_rna_dna=te_d6_interaction_df[te_d6_interaction_df[,"source_node"]%in%module_transcripts_te_d6 & te_d6_interaction_df[,"target_node"]%in%module_promoters_te_d6,c("source_node","target_node")]
+
+xyz=NULL
+for (i in te_3d_arrow_rna_dna[,"source_node"]){
+  xyz=rbind(xyz,te_d6_rna_module_acp$x[rownames(te_d6_rna_module_acp$x)==i,c(1:3)]+5)  
+}
+
+
+
+xyz_end=NULL
+for (i in te_3d_arrow_rna_dna[,"target_node"]){
+  xyz_end=rbind(xyz_end,te_d6_dna_module_acp$x[rownames(te_d6_dna_module_acp$x)==i,c(1:3)])  
+}
+
+te_rna_dna_3d_arrows=data.frame(te_3d_arrow_rna_dna,x_3d_arrow=xyz[,1],y_3d_arrow=xyz[,2], z_3d_arrow=xyz[,3],xend_3d_arrow=xyz_end[,1],yend_3d_arrow=xyz_end[,2],zend_3d_arrow=xyz_end[,3])
+
+epi_d6_3d_arrows=rbind(epi_dna_dna_3d_arrows, epi_dna_rna_3d_arrows, epi_rna_rna_3d_arrows, epi_rna_dna_3d_arrows)
+pe_d8_3d_arrows=rbind(pe_dna_dna_3d_arrows, pe_dna_rna_3d_arrows, pe_rna_rna_3d_arrows, pe_rna_dna_3d_arrows)
+te_d6_3d_arrows=rbind(te_dna_dna_3d_arrows, te_dna_rna_3d_arrows, te_rna_rna_3d_arrows, te_rna_dna_3d_arrows)
+
+````
+
+
+
+````{r 3d networks wgcna module pairs}
+
+epi_d6_module_acp=rbind(epi_d6_dna_module_acp$x[,c(1:3)], epi_d6_rna_module_acp$x[,c(1:3)]+5)
+epi_d6_size=c(epi_d6_dna_size,epi_d6_rna_size)
+
+scene = list(
+  xaxis = list(
+  title = "",
+  zeroline = FALSE,
+  showline = FALSE,
+  showticklabels = FALSE,
+  showgrid = FALSE
+),
+  yaxis = list(
+  title = "",
+  zeroline = FALSE,
+  showline = FALSE,
+  showticklabels = FALSE,
+  showgrid = FALSE
+),
+  zaxis = list(
+  title = "",
+  zeroline = FALSE,
+  showline = FALSE,
+  showticklabels = FALSE,
+  showgrid = FALSE
+))
+
+
+epi_d6_module_acp_fig <- plot_ly(x=epi_d6_module_acp[,"PC1"], y=epi_d6_module_acp[,"PC2"], z=epi_d6_module_acp[,"PC3"]
+,alpha=0.5,
+size = ~log(epi_d6_size+1,10), marker = list(symbol = 'circle', sizemode = 'diameter'), sizes = c(13,120),color=~c(rep("dna",length(module_promoters_epi_d6)),rep("rna",length(module_transcripts_epi_d6))),colors=c("green","purple")
+)  %>% add_markers(
+              text = rownames(epi_d6_module_acp),
+              textfont = list(size=log2(epi_d6_size+1.5)*15, color= c(rep("green",length(module_promoters_epi_d6)),rep("purple",length(module_transcripts_epi_d6)))),
+              showlegend = T)%>%layout(scene=scene) 
+
+epi_d6_module_arrow_fig=NULL
+
+for (i in seq(nrow(rbind(epi_dna_dna_3d_arrows,epi_dna_rna_3d_arrows)))){
+plot_ly() %>%
+  add_trace(x = c(epi_d6_3d_arrows$x_3d_arrow[i],epi_d6_3d_arrows$xend_3d_arrow[i]),
+    y = c(epi_d6_3d_arrows$y_3d_arrow[i],epi_d6_3d_arrows$yend_3d_arrow[i]),
+    z = c(epi_d6_3d_arrows$z_3d_arrow[i],epi_d6_3d_arrows$zend_3d_arrow[i]),
+    type = "scatter3d", mode = "lines", name = "lines", showlegend = FALSE,
+    line=list(color="green", width = 1, alpha=0.1)) -> epi_d6_module_arrow_fig[[i]]
+}
+
+
+for (i in seq(nrow(rbind(epi_dna_dna_3d_arrows,epi_dna_rna_3d_arrows)),(nrow(rbind(epi_dna_dna_3d_arrows,epi_dna_rna_3d_arrows))+nrow(rbind(epi_rna_rna_3d_arrows,epi_rna_dna_3d_arrows))))){
+plot_ly() %>%
+  add_trace(x = c(epi_d6_3d_arrows$x_3d_arrow[i],epi_d6_3d_arrows$xend_3d_arrow[i]),
+    y = c(epi_d6_3d_arrows$y_3d_arrow[i],epi_d6_3d_arrows$yend_3d_arrow[i]),
+    z = c(epi_d6_3d_arrows$z_3d_arrow[i],epi_d6_3d_arrows$zend_3d_arrow[i]),
+    type = "scatter3d", mode = "lines", name = "lines", showlegend = FALSE,
+    line=list(color="purple", width = 1, alpha=0.1))%>%layout(scene=scene) -> epi_d6_module_arrow_fig[[i]]
+}
+
+epi_d6_module_arrow_fig$nodes=epi_d6_module_acp_fig
+
+subplot(epi_d6_module_arrow_fig)
+
+
+pe_d8_module_acp=rbind(pe_d8_dna_module_acp$x[,c(1:3)], pe_d8_rna_module_acp$x[,c(1:3)]+5)
+pe_d8_size=c(pe_d8_dna_size,pe_d8_rna_size)
+
+scene = list(
+  xaxis = list(
+  title = "",
+  zeroline = FALSE,
+  showline = FALSE,
+  showticklabels = FALSE,
+  showgrid = FALSE
+),
+  yaxis = list(
+  title = "",
+  zeroline = FALSE,
+  showline = FALSE,
+  showticklabels = FALSE,
+  showgrid = FALSE
+),
+  zaxis = list(
+  title = "",
+  zeroline = FALSE,
+  showline = FALSE,
+  showticklabels = FALSE,
+  showgrid = FALSE
+))
+
+
+pe_d8_module_acp_fig <- plot_ly(x=pe_d8_module_acp[,"PC1"], y=pe_d8_module_acp[,"PC2"], z=pe_d8_module_acp[,"PC3"]
+,alpha=0.5,
+size = ~log(pe_d8_size+1,10), marker = list(symbol = 'circle', sizemode = 'diameter'), sizes = c(13,120),color=~c(rep("dna",length(module_promoters_pe_d8)),rep("rna",length(module_transcripts_pe_d8))),colors=c("green","purple")
+)  %>% add_markers(
+              text = rownames(pe_d8_module_acp),
+              textfont = list(size=log2(pe_d8_size+1.5)*15, color= c(rep("green",length(module_promoters_pe_d8)),rep("purple",length(module_transcripts_pe_d8)))),
+              showlegend = T)%>%layout(scene=scene) 
+
+pe_d8_module_arrow_fig=NULL
+
+for (i in seq(nrow(rbind(pe_dna_dna_3d_arrows,pe_dna_rna_3d_arrows)))){
+plot_ly() %>%
+  add_trace(x = c(pe_d8_3d_arrows$x_3d_arrow[i],pe_d8_3d_arrows$xend_3d_arrow[i]),
+    y = c(pe_d8_3d_arrows$y_3d_arrow[i],pe_d8_3d_arrows$yend_3d_arrow[i]),
+    z = c(pe_d8_3d_arrows$z_3d_arrow[i],pe_d8_3d_arrows$zend_3d_arrow[i]),
+    type = "scatter3d", mode = "lines", name = "lines", showlegend = FALSE,
+    line=list(color="green", width = 1, alpha=0.1)) -> pe_d8_module_arrow_fig[[i]]
+}
+
+
+for (i in seq(nrow(rbind(pe_dna_dna_3d_arrows,pe_dna_rna_3d_arrows)),(nrow(rbind(pe_dna_dna_3d_arrows,pe_dna_rna_3d_arrows))+nrow(rbind(pe_rna_rna_3d_arrows,pe_rna_dna_3d_arrows))))){
+plot_ly() %>%
+  add_trace(x = c(pe_d8_3d_arrows$x_3d_arrow[i],pe_d8_3d_arrows$xend_3d_arrow[i]),
+    y = c(pe_d8_3d_arrows$y_3d_arrow[i],pe_d8_3d_arrows$yend_3d_arrow[i]),
+    z = c(pe_d8_3d_arrows$z_3d_arrow[i],pe_d8_3d_arrows$zend_3d_arrow[i]),
+    type = "scatter3d", mode = "lines", name = "lines", showlegend = FALSE,
+    line=list(color="purple", width = 1, alpha=0.1))%>%layout(scene=scene) -> pe_d8_module_arrow_fig[[i]]
+}
+
+pe_d8_module_arrow_fig$nodes=pe_d8_module_acp_fig
+
+subplot(pe_d8_module_arrow_fig)
+
+
+
+te_d6_module_acp=rbind(te_d6_dna_module_acp$x[,c(1:3)], te_d6_rna_module_acp$x[,c(1:3)]+5)
+te_d6_size=c(te_d6_dna_size,te_d6_rna_size)
+
+scene = list(
+  xaxis = list(
+  title = "",
+  zeroline = FALSE,
+  showline = FALSE,
+  showticklabels = FALSE,
+  showgrid = FALSE
+),
+  yaxis = list(
+  title = "",
+  zeroline = FALSE,
+  showline = FALSE,
+  showticklabels = FALSE,
+  showgrid = FALSE
+),
+  zaxis = list(
+  title = "",
+  zeroline = FALSE,
+  showline = FALSE,
+  showticklabels = FALSE,
+  showgrid = FALSE
+))
+
+
+te_d6_module_acp_fig <- plot_ly(x=te_d6_module_acp[,"PC1"], y=te_d6_module_acp[,"PC2"], z=te_d6_module_acp[,"PC3"]
+,alpha=0.5,
+size = ~log(te_d6_size+1,10), marker = list(symbol = 'circle', sizemode = 'diameter'), sizes = c(13,120),color=~c(rep("dna",length(module_promoters_te_d6)),rep("rna",length(module_transcripts_te_d6))),colors=c("green","purple")
+)  %>% add_markers(
+              text = rownames(te_d6_module_acp),
+              textfont = list(size=log2(te_d6_size+1.5)*15, color= c(rep("green",length(module_promoters_te_d6)),rep("purple",length(module_transcripts_te_d6)))),
+              showlegend = T)%>%layout(scene=scene) 
+
+te_d6_module_arrow_fig=NULL
+
+for (i in seq(nrow(rbind(te_dna_dna_3d_arrows,te_dna_rna_3d_arrows)))){
+plot_ly() %>%
+  add_trace(x = c(te_d6_3d_arrows$x_3d_arrow[i],te_d6_3d_arrows$xend_3d_arrow[i]),
+    y = c(te_d6_3d_arrows$y_3d_arrow[i],te_d6_3d_arrows$yend_3d_arrow[i]),
+    z = c(te_d6_3d_arrows$z_3d_arrow[i],te_d6_3d_arrows$zend_3d_arrow[i]),
+    type = "scatter3d", mode = "lines", name = "lines", showlegend = FALSE,
+    line=list(color="green", width = 1, alpha=0.1)) -> te_d6_module_arrow_fig[[i]]
+}
+
+
+for (i in seq(nrow(rbind(te_dna_dna_3d_arrows,te_dna_rna_3d_arrows)),(nrow(rbind(te_dna_dna_3d_arrows,te_dna_rna_3d_arrows))+nrow(rbind(te_rna_rna_3d_arrows,te_rna_dna_3d_arrows))))){
+plot_ly() %>%
+  add_trace(x = c(te_d6_3d_arrows$x_3d_arrow[i],te_d6_3d_arrows$xend_3d_arrow[i]),
+    y = c(te_d6_3d_arrows$y_3d_arrow[i],te_d6_3d_arrows$yend_3d_arrow[i]),
+    z = c(te_d6_3d_arrows$z_3d_arrow[i],te_d6_3d_arrows$zend_3d_arrow[i]),
+    type = "scatter3d", mode = "lines", name = "lines", showlegend = FALSE,
+    line=list(color="purple", width = 1, alpha=0.1))%>%layout(scene=scene) -> te_d6_module_arrow_fig[[i]]
+}
+
+te_d6_module_arrow_fig$nodes=te_d6_module_acp_fig
+
+subplot(te_d6_module_arrow_fig)
+
+
+
+````
+
+
+## Mix-Kernel analysis
+
+
+We want now to go further and use a kernel based approach, which computes a multi-dimension space in which embryo cells will place given their vicinity across gene promoter methylation and gene expression. This exploratory non-supervised analysis traces a non-linear frontier of decision that allocates individuals into groups ([Mariette and Vialaneix, 2018](#mariette_2018)).
+
+````{r mixkernel fa_pfa, echo=FALSE}
+dna_rna_mix_kernel=list(log2(dna_upm_subset+1), log2(rna_subset+1)[,colnames(dna_upm_subset)])
+names(dna_rna_mix_kernel)=c("dna","rna")
+
+
+# compute kernel
+dna_kernel <- compute.kernel(t(dna_rna_mix_kernel$dna), kernel.func = "linear")
+rna_kernel <- compute.kernel(t(dna_rna_mix_kernel$rna), kernel.func = "linear")
+
+# check dimensions
+dim(dna_kernel$kernel)
+dim(rna_kernel$kernel)
+
+````
+
+````{r mix kernel explained variance, out.width="90%", fig.topcaption = TRUE , fig.cap="<center>**Variance explained by kernel for the two datasets**</center>"}
+
+cim.kernel(dna = dna_kernel,
+           rna = rna_kernel,
+           method = "square"
+)
+
+rna_dna_meta_kernel <- combine.kernels(dna = dna_kernel, 
+                                       rna = rna_kernel,
+                                       method = "full-UMKL")
+
+kernel.pca.result <- kernel.pca(rna_dna_meta_kernel, ncomp = 10)
+
+# save.image("2021_06_09_embryo_kernel")
+load("2021_06_09_embryo_kernel")
+````
+
+We needed a space within cells segregate by developmental stage and lineage progression -> kernel almost succeeded.
+Indeed, contrary to single PCA or UMAP, kernel recapitulates both developmental stage progression and lineage specification.
+
+We can use this kernel space to visualize methylation and expression of genes, notably WGCNA module genes, throughout early development of the human embryo.
+
+````{r r mixkernel fa_pfa 3d, figures-side, fig.show="hold", out.width="90%", fig.topcaption = TRUE , fig.cap="<center>**3D Kernel PCA (KPCA)**</center>"}
+lineage_kernel=lineage[rownames(kernel.pca.result$x)]
+next3d()
+scene_kernel = list(camera = list(eye = list(x = 0, y = 0, z = 1.25)))
+fig <- plot_ly(x=kernel.pca.result$x[,1],y=kernel.pca.result$x[,2],z=kernel.pca.result$x[,3],color = ~factor(lineage_kernel,levels=c("Epi", "PE", "TE")), colors = c("red","green","blue"),alpha=0.6)
+fig <- fig %>% add_markers()
+fig
+
+day_kernel=day[rownames(kernel.pca.result$x)]
+next3d()
+scene_kernel = list(camera = list(eye = list(x = 0, y = 0, z = 1.25)))
+fig <- plot_ly(x=kernel.pca.result$x[,1],y=kernel.pca.result$x[,2],z=kernel.pca.result$x[,3],color = ~factor(day_kernel,levels=c("D6", "D8", "D10", "D12")), colors = c("yellow","turquoise","purple","red"),alpha=0.6)
+fig <- fig %>% add_markers()
+fig
+
+
+promoter_kernel=log2(dna_upm_subset[which(rownames(dna_upm_subset)=="POU5F1"),]+1)
+next3d()
+scene_kernel = list(camera = list(eye = list(x = 0, y = 0, z = 1.25)))
+fig <- plot_ly(x=kernel.pca.result$x[,1],y=kernel.pca.result$x[,2],z=kernel.pca.result$x[,3],color = ~promoter_kernel,alpha=1, colors=c("blue","lightblue","#FFC0CB","red"))
+fig <- fig %>% add_markers()
+fig
+
+transcript_kernel=log2(rna_subset[which(rownames(rna_subset)=="POU5F1"),]+1)
+next3d()
+scene_kernel = list(camera = list(eye = list(x = 0, y = 0, z = 1.25)))
+fig <- plot_ly(x=kernel.pca.result$x[,1],y=kernel.pca.result$x[,2],z=kernel.pca.result$x[,3],color = ~transcript_kernel,alpha=1, colors=c("blue","lightblue","#FFC0CB","red"))
+fig <- fig %>% add_markers()
+fig
+
+terf1_rna_boxplot=data.frame(metadata,expr=log2(rna_subset[which(rownames(rna_subset)=="TERF1"),]+1),lineage_day=paste0(metadata$lineage,"_",metadata$day))
+
+
+terf1_rna_boxplot$lineage_day=factor(terf1_rna_boxplot$lineage_day,levels=c("Epi_D6", "Epi_D8", "Epi_D10", "PE_D6", "PE_D8", "PE_D10", "PE_D12", "TE_D6", "TE_D8", "TE_D10", "TE_D12"))
+
+ggplot(terf1_rna_boxplot,aes(x=lineage_day,y=expr,fill=lineage_day))+
+  geom_boxplot()+
+  scale_fill_manual(values=c("#ff6eeb","#f01dbd","#f01d8d","#5df700","#20cc2d","#10ae4a","#39a455","#04f1fc","#20c1e1","blue","darkblue"))+
+  labs(title="TERF1 gene expression")
+
+CHEK2_dna_boxplot=data.frame(metadata,expr=log2(dna_upm_subset[which(rownames(dna_upm_subset)=="CHEK2"),]+1),lineage_day=paste0(metadata$lineage,"_",metadata$day))
+
+CHEK2_dna_boxplot$lineage_day=factor(CHEK2_dna_boxplot$lineage_day,levels=c("Epi_D6", "Epi_D8", "Epi_D10", "PE_D6", "PE_D8", "PE_D10", "PE_D12", "TE_D6", "TE_D8", "TE_D10", "TE_D12"))
+
+ggplot(CHEK2_dna_boxplot,aes(x=lineage_day,y=expr,fill=lineage_day))+
+  geom_boxplot()+
+  scale_fill_manual(values=c("#ff6eeb","#f01dbd","#f01d8d","#5df700","#20cc2d","#10ae4a","#39a455","#04f1fc","#20c1e1","blue","darkblue"))+
+  labs(title="CHEK2 DNA methylation")
+
+CHEK2_rna_boxplot=data.frame(metadata,expr=log2(rna_subset[which(rownames(rna_subset)=="CHEK2"),]+1),lineage_day=paste0(metadata$lineage,"_",metadata$day))
+
+CHEK2_rna_boxplot$lineage_day=factor(CHEK2_rna_boxplot$lineage_day,levels=c("Epi_D6", "Epi_D8", "Epi_D10", "PE_D6", "PE_D8", "PE_D10", "PE_D12", "TE_D6", "TE_D8", "TE_D10", "TE_D12"))
+
+ggplot(CHEK2_rna_boxplot,aes(x=lineage_day,y=expr,fill=lineage_day))+
+  geom_boxplot()+
+  scale_fill_manual(values=c("#ff6eeb","#f01dbd","#f01d8d","#5df700","#20cc2d","#10ae4a","#39a455","#04f1fc","#20c1e1","blue","darkblue"))+
+  labs(title="CHEK2 gene expression")
+
+
+
+````
+
+````{r kernel plot pca res, figures-side, fig.show="hold", out.width="50%", fig.topcaption = TRUE , fig.cap="<center>**Variance explained by PC of KPCA**</center>"}
+plot(kernel.pca.result)
+````
+
+Clearly, the kernel PCA (KPCA) shows a space in which embryonic cell vicinity recapitulates both lineages and developmental day. This is of utmost interest as we could not combine these two traits with sufficient resolution.
+
+Therefore, the kernel based approach integrates gene promoter methylation with gene expression and computes a space recapitulating developmental progression and lineage specification of the early human embryo.
+
+
+# PERSPECTIVE : Machine learning -> algorithm that can assign robustly cell lineages and developmental time
+We can use this model to build an algorithm that assign a given embryo cell to lineage and developmental stage, provided DNA methylation and gene expression measures.
+
+Machine learning model:
+
+- create
+- train
+- test (on other datasets too, should work for single dataset and both dataset input)
+- use
+
+A predictive model could help to resolve inter-embryo developmental delays or misleaded annotation, and thus accurate developmental stage and lineage maturation identification. This also could help to unify the diverse datasets on a common annotation, thus helping to compare these data.
+
+For this purpose, we could subset the current dataset and use the kernel space and the WGCNA modules, to train the model on one set of cells, and test it on the other set, both of which representative of developmental day and lineage distribution.
+
+However, it would be better that once new datasets are produced, we test our model on these.
+
+# Difficulties
+
+- no access to fastq files
+- difficulties to normalise data properly
+- results strongly depend on input data distribution
+- hard to select appropriate soft-power threshold for WGCNA
+- functional enrichment databases seem inaccurate for the human embryo
+
+# Session info
+
+```{r session_info}
+
+sessionInfo()
+
+```
+
+# References
+
+###### Argelaguet, R., Velten, B., Arnol, D., Dietrich, S., Zenz, T., Marioni, J. C., Buettner, F., Huber, W., & Stegle, O. (2018). Multi-Omics Factor Analysis-a framework for unsupervised integration of multi-omics data sets. Molecular systems biology, 14(6), e8124. [https://doi.org/10.15252/msb.20178124](https://doi.org/10.15252/msb.20178124) {#argelaguet_2018}
+
+###### Jaskowiak, P. A., Campello, R. J., & Costa, I. G. (2014). On the selection of appropriate distances for gene expression data clustering. BMC bioinformatics, 15 Suppl 2(Suppl 2), S2. [https://doi.org/10.1186/1471-2105-15-S2-S2](https://doi.org/10.1186/1471-2105-15-S2-S2) {#jaskowiak_2014}
+
+
+###### Kobak, D., Linderman, G.C. Initialization is critical for preserving global data structure in both t-SNE and UMAP. Nat Biotechnol 39, 156–157 (2021). [https://doi-org.proxy.insermbiblio.inist.fr/10.1038/s41587-020-00809-z](https://doi-org.proxy.insermbiblio.inist.fr/10.1038/s41587-020-00809-z) {#kobak_2021}
+
+###### Langfelder, P., Horvath, S. WGCNA: an R package for weighted correlation network analysis. BMC Bioinformatics 9, 559 (2008). [https://doi.org/10.1186/1471-2105-9-559](https://doi.org/10.1186/1471-2105-9-559) {#langfelder_2008}
+
+###### Lawlor, N., Fabbri, A., Guan, P., George, J., & Karuturi, R. K. (2016). multiClust: An R-package for Identifying Biologically Relevant Clusters in Cancer Transcriptome Profiles. Cancer informatics, 15, 103–114. [https://doi.org/10.4137/CIN.S38000](https://doi.org/10.4137/CIN.S38000) {#lawlor_2016}
+
+###### Lever, J., Krzywinski, M. & Altman, N. Principal component analysis. Nat Methods 14, 641–642 (2017). [https://doi.org/10.1038/nmeth.4346](https://doi.org/10.1038/nmeth.4346) {#lever_2017}
+
+###### Mariette, J., & Villa-Vialaneix, N. (2018). Unsupervised multiple kernel learning for heterogeneous data integration. Bioinformatics (Oxford, England), 34(6), 1009–1015.[https://doi.org/10.1093/bioinformatics/btx682](https://doi.org/10.1093/bioinformatics/btx682) {#mariette_2018}
+
+###### Molè, M. A., Weberling, A., & Zernicka-Goetz, M. (2020). Comparative analysis of human and mouse development: From zygote to pre-gastrulation. Current topics in developmental biology, 136, 113–138. [https://doi.org/10.1016/bs.ctdb.2019.10.002](https://doi.org/10.1016/bs.ctdb.2019.10.002) {#mole_2020}
+
+###### Zhou, F., Wang, R., Yuan, P., Ren, Y., Mao, Y., Li, R., Lian, Y., Li, J., Wen, L., Yan, L., Qiao, J., & Tang, F. (2019). Reconstituting the transcriptome and DNA methylome landscapes of human implantation. Nature, 572(7771), 660–664. [https://doi.org/10.1038/s41586-019-1500-0](https://doi.org/10.1038/s41586-019-1500-0) {#zhou_2019}
+
+###### Zoppi, J., Guillaume, JF., Neunlist, M. et al. MiBiOmics: an interactive web application for multi-omics data exploration and integration. BMC Bioinformatics 22, 6 (2021). [https://doi.org/10.1186/s12859-020-03921-8](https://doi.org/10.1186/s12859-020-03921-8) {#zoppi_2021}
